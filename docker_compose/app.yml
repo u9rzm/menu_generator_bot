@@ -1,0 +1,21 @@
+version: '3.9'
+
+services:
+  main-app:
+    build:
+      context: ..
+      dockerfile: ./app/api/Dockerfile
+    container_name: menu_for_bars
+    ports: 
+      - 2424:2424
+    command: "uvicorn main:app --reload --host 0.0.0.0 --port ${API_PORT}"
+    env_file:
+      - ../.env
+    volumes:
+      - ../app/:/app/
+    networks:
+      - webnet
+
+networks:
+  webnet:
+    driver: bridge

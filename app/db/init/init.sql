@@ -1,0 +1,17 @@
+CREATE DATABASE bar;
+
+\connect bar;
+
+CREATE TABLE main (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    owner TEXT NOT NULL,
+    name_menu_table TEXT NOT NULL,
+    created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    tid BIGINT NOT NULL,
+    owner BOOLEAN DEFAULT FALSE
+);

@@ -1,0 +1,92 @@
+version: "3.9"
+
+services:
+#NGINX
+  nginx:
+    build: ../nginx
+    container_name: nginx-app
+    restart: unless-stopped
+    environment:
+      API_PORT: ${API_PORT}
+    volumes:
+      - ../nginx/test.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../static/index.html:/usr/share/nginx/html/index.html:ro
+      - ../static/:/usr/share/nginx/html/
+    ports:
+      - "80:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - webnet
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+# FAST API 
+  api:
+    build:
+      context: ..
+      dockerfile: ./app/api/Dockerfile
+    container_name: api-app
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+      API_PORT: ${API_PORT}
+    volumes:
+      - ../app/api:/app
+    expose:
+      - "${API_PORT}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - webnet
+# POSGRES
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    container_name: postgres-app
+    # env_file:
+    #   - ./.env
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DB}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - webnet
+
+#BOT
+  bot:
+    build: ../app/bot
+    container_name: bot-app
+    # env_file: .env
+    networks:
+      - webnet
+    volumes:
+      - ../app/bot/:/app/
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+
+networks:
+  webnet:
+    driver: bridge

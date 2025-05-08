@@ -194,9 +194,28 @@ def create_user(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-
-
+@app.post("/register_user")
+async def register_user(tid: int, db: Session = Depends(get_db)):
+    """Register a new user or return existing user"""
+    try:
+        logger.info(f"Attempting to register user with tid: {tid}")
+        
+        # Проверяем существование пользователя
+        existing_user = User.get_by_tid(db, tid)
+        if existing_user:
+            logger.info(f"User with tid {tid} already exists")
+            return existing_user.to_dataclass().to_dict()
+        
+        # Создаем нового пользователя
+        user_data = UserData(tid=tid, owner=False)
+        new_user = User.create(db, user_data)
+        logger.info(f"Successfully registered new user with tid: {tid}")
+        
+        return new_user.to_dataclass().to_dict()
+    except Exception as e:
+        logger.error(f"Error registering user: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Получение всех элементов меню
 @app.get("/menu", response_model=List[dict])

@@ -15,4 +15,8 @@ RUN poetry config virtualenvs.create false
 # RUN poetry add fastapi
 RUN poetry install --no-root --no-interaction --no-ansi
 
-CMD ["python", "bot.py"]
+# Устанавливаем watchdog для автоперезагрузки
+RUN pip install watchdog
+
+# Запускаем бота с автоперезагрузкой
+CMD ["watchmedo", "auto-restart", "--directory=/app", "--pattern=*.py", "--recursive", "--", "python", "bot.py"]

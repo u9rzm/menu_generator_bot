@@ -41,9 +41,11 @@ chmod +x /start.sh
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:${API_PORT}/health || exit 1
 
+# Создаем директорию для шаблонов
+RUN mkdir -p /app/templates
+
+# Копируем файлы приложения
+COPY . /app/
+
 CMD ["/start.sh"]
 
-#COPY app/* /app/
-
-
-# CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "${API_PORT}"]

@@ -23,6 +23,23 @@ bot = Bot(
 )
 dp = Dispatcher()
 
+async def register_user(user_id: int) -> bool:
+    """Регистрирует пользователя в базе данных"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{API_URL}/register_user?tid={user_id}") as resp:
+                if resp.status == 200:
+                    user_data = await resp.json()
+                    logger.info(f"User {user_id} registered successfully: {user_data}")
+                    return True
+                else:
+                    error_text = await resp.text()
+                    logger.error(f"Failed to register user {user_id}: {error_text}")
+                    return False
+    except Exception as e:
+        logger.error(f"Error registering user {user_id}: {str(e)}")
+        return False
+
 def get_main_buttons() -> InlineKeyboardMarkup:
     """Создает инлайн кнопки для основного меню"""
     keyboard = InlineKeyboardMarkup(
@@ -64,11 +81,18 @@ def log_user_info(message: Message):
 @dp.message(Command("start"))
 async def start_cmd(message: Message):
     log_user_info(message)
-    await message.answer(
-        "👋 Привет! Я бот для создания таблиц.\n\n"
-        "Выберите действие:",
-        reply_markup=get_main_buttons()
-    )
+    
+    # Регистрируем пользователя
+    if await register_user(message.from_user.id):
+        await message.answer(
+            "👋 Привет! Я бот для создания таблиц.\n\n"
+            "Выберите действие:",
+            reply_markup=get_main_buttons()
+        )
+    else:
+        await message.answer(
+            "❌ Произошла ошибка при регистрации. Пожалуйста, попробуйте позже или обратитесь в поддержку."
+        )
 
 @dp.callback_query(lambda c: c.data == "create_table")
 async def create_table_callback(callback_query: types.CallbackQuery):
@@ -123,9 +147,6 @@ async def create_table(message: Message):
                     reply_markup=get_main_buttons()
                 )
 
-async def main():
-    await dp.start_polling(bot)
-
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(main())
+    asyncio.run(dp.start_polling(bot))

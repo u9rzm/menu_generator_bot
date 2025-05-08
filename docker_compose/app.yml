@@ -16,6 +16,20 @@ services:
     networks:
       - webnet
 
+  bot:
+    build:
+      context: ..
+      dockerfile: ./app/bot/Dockerfile
+    container_name: menu_bot
+    env_file:
+      - ../.env
+    volumes:
+      - ../app/bot:/app
+    networks:
+      - webnet
+    depends_on:
+      - main-app
+
 networks:
   webnet:
     driver: bridge

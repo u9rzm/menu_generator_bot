@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from app.database import get_db
-from app.models import Organization, MenuItem
-from app.api.menu_generator import (
+from database import get_db
+from models import Organization, MenuItem
+from menu_generator import (
     generate_menu_page,
     get_menu_page_url,
     check_menu_page_exists,

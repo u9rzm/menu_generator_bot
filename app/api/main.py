@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Request
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Request, Query
 from fastapi.responses import JSONResponse, HTMLResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -37,11 +37,12 @@ app = FastAPI(title="Menu API", lifespan=lifespan)
 
 # Конфигурация
 BASE_URL = "http://localhost:8000"
-STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+PAGES_DIR = os.path.join(STATIC_DIR, "pages")
 
 # Создаем директории если их нет
 os.makedirs(STATIC_DIR, exist_ok=True)
-os.makedirs(os.path.join(STATIC_DIR, "menu_pages"), exist_ok=True)
+os.makedirs(PAGES_DIR, exist_ok=True)
 
 # Монтируем статические файлы
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -237,7 +238,7 @@ def create_user(
         db.close()
 
 @app.post("/register_user")
-async def register_user(tid: int, db: Session = Depends(get_db_session)):
+async def register_user(tid: int = Query(...), db: Session = Depends(get_db_session)):
     """Register a new user or return existing user"""
     try:
         logger.info(f"Attempting to register user with tid: {tid}")
@@ -697,7 +698,7 @@ def generate_menu_page(org_id: int, theme: str, db: Session) -> str:
     ).body.decode()
 
     filename = f"menu_{org_id}_{theme}.html"
-    filepath = os.path.join(STATIC_DIR, 'menu_pages', filename)
+    filepath = os.path.join(PAGES_DIR, filename)
 
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(html_content)
@@ -707,12 +708,12 @@ def generate_menu_page(org_id: int, theme: str, db: Session) -> str:
 def get_menu_page_url(org_id: int, theme: str) -> str:
     """Возвращает URL для страницы меню"""
     filename = f"menu_{org_id}_{theme}.html"
-    return f"{BASE_URL}/static/menu_pages/{filename}"
+    return f"{BASE_URL}/static/pages/{filename}"
 
 def check_menu_page_exists(org_id: int, theme: str) -> bool:
     """Проверяет существование сгенерированной страницы"""
     filename = f"menu_{org_id}_{theme}.html"
-    filepath = os.path.join(STATIC_DIR, 'menu_pages', filename)
+    filepath = os.path.join(PAGES_DIR, filename)
     return os.path.exists(filepath)
 
 # API endpoints
@@ -833,7 +834,7 @@ async def view_menu(org_id: int, theme: str = 'modern-dark', request: Request = 
         
         # Читаем сгенерированную страницу
         filename = f"menu_{org_id}_{theme}.html"
-        filepath = os.path.join(STATIC_DIR, 'menu_pages', filename)
+        filepath = os.path.join(PAGES_DIR, filename)
         
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()

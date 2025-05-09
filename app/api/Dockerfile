@@ -2,9 +2,9 @@ FROM python:3.12.1-slim-bullseye
 
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
-ENV API_PORT=2424
+# ENV API_PORT=2424
 
-WORKDIR /app/
+WORKDIR /app
 
 # Установка системных зависимостей с повторными попытками
 RUN for i in $(seq 1 3); do \
@@ -24,7 +24,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install python-multipart && \
     pip install --no-cache-dir poetry
 
-COPY pyproject.toml /app/
+# Копируем pyproject.toml из текущей директории
+COPY ./pyproject.toml /app/
+
+# Устанавливаем зависимости через poetry
 RUN poetry config virtualenvs.create false && \
     poetry install --no-root --no-interaction --no-ansi
 
@@ -40,12 +43,6 @@ chmod +x /start.sh
 # Добавляем healthcheck
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:${API_PORT}/health || exit 1
-
-# Создаем директорию для шаблонов
-RUN mkdir -p /app/templates
-
-# Копируем файлы приложения
-COPY . /app/
 
 CMD ["/start.sh"]
 

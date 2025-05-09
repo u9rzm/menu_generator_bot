@@ -462,3 +462,168 @@ class Organization(Base):
         """Get all organizations with pagination"""
         return db.query(cls).offset(skip).limit(limit).all()
 
+@dataclass
+class MenuItemTable:
+    """Dataclass for defining menu items table structure"""
+    __tablename__: str = "menu_items"
+    
+    id: Column = Column(Integer, primary_key=True, index=True)
+    organization_id: Column = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    name: Column = Column(String, nullable=False)
+    description: Column = Column(String, nullable=True)
+    price: Column = Column(Numeric, nullable=False)
+    category: Column = Column(String, nullable=False)
+    subcategory: Column = Column(String, nullable=True)
+    is_available: Column = Column(Boolean, default=True)
+    image_url: Column = Column(String, nullable=True)
+    created_at: Column = Column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at: Column = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+@dataclass
+class MenuItemData:
+    """Dataclass for menu item data operations"""
+    organization_id: int
+    name: str
+    price: Decimal
+    category: str
+    description: Optional[str] = None
+    subcategory: Optional[str] = None
+    is_available: bool = True
+    image_url: Optional[str] = None
+    id: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "organization_id": self.organization_id,
+            "name": self.name,
+            "description": self.description,
+            "price": float(self.price),
+            "category": self.category,
+            "subcategory": self.subcategory,
+            "is_available": self.is_available,
+            "image_url": self.image_url,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MenuItemData':
+        return cls(
+            id=data.get('id'),
+            organization_id=data['organization_id'],
+            name=data['name'],
+            description=data.get('description'),
+            price=Decimal(str(data['price'])),
+            category=data['category'],
+            subcategory=data.get('subcategory'),
+            is_available=data.get('is_available', True),
+            image_url=data.get('image_url'),
+            created_at=datetime.fromisoformat(data['created_at']) if data.get('created_at') else None,
+            updated_at=datetime.fromisoformat(data['updated_at']) if data.get('updated_at') else None
+        )
+
+class MenuItem(Base):
+    """SQLAlchemy model for menu items table"""
+    __tablename__ = MenuItemTable.__tablename__
+
+    id = MenuItemTable.id
+    organization_id = MenuItemTable.organization_id
+    name = MenuItemTable.name
+    description = MenuItemTable.description
+    price = MenuItemTable.price
+    category = MenuItemTable.category
+    subcategory = MenuItemTable.subcategory
+    is_available = MenuItemTable.is_available
+    image_url = MenuItemTable.image_url
+    created_at = MenuItemTable.created_at
+    updated_at = MenuItemTable.updated_at
+
+    def to_dataclass(self) -> MenuItemData:
+        return MenuItemData(
+            id=self.id,
+            organization_id=self.organization_id,
+            name=self.name,
+            description=self.description,
+            price=self.price,
+            category=self.category,
+            subcategory=self.subcategory,
+            is_available=self.is_available,
+            image_url=self.image_url,
+            created_at=self.created_at,
+            updated_at=self.updated_at
+        )
+
+    @classmethod
+    def from_dataclass(cls, data: MenuItemData) -> 'MenuItem':
+        return cls(
+            organization_id=data.organization_id,
+            name=data.name,
+            description=data.description,
+            price=data.price,
+            category=data.category,
+            subcategory=data.subcategory,
+            is_available=data.is_available,
+            image_url=data.image_url
+        )
+
+    @classmethod
+    def create(cls, db: Session, menu_item_data: MenuItemData) -> 'MenuItem':
+        """Create new menu item"""
+        try:
+            menu_item = cls.from_dataclass(menu_item_data)
+            db.add(menu_item)
+            db.commit()
+            db.refresh(menu_item)
+            return menu_item
+        except SQLAlchemyError as e:
+            db.rollback()
+            raise e
+
+    @classmethod
+    def get_by_id(cls, db: Session, menu_item_id: int) -> Optional['MenuItem']:
+        """Get menu item by ID"""
+        return db.query(cls).filter(cls.id == menu_item_id).first()
+
+    @classmethod
+    def get_by_organization(cls, db: Session, organization_id: int) -> List['MenuItem']:
+        """Get menu items by organization"""
+        return db.query(cls).filter(cls.organization_id == organization_id).all()
+
+    @classmethod
+    def get_all(cls, db: Session, skip: int = 0, limit: int = 100) -> List['MenuItem']:
+        """Get all menu items with pagination"""
+        return db.query(cls).offset(skip).limit(limit).all()
+
+    @classmethod
+    def update(cls, db: Session, menu_item_id: int, menu_item_data: MenuItemData) -> Optional['MenuItem']:
+        """Update menu item"""
+        try:
+            menu_item = cls.get_by_id(db, menu_item_id)
+            if menu_item:
+                for key, value in menu_item_data.__dict__.items():
+                    if key != 'id' and value is not None:
+                        setattr(menu_item, key, value)
+                db.commit()
+                db.refresh(menu_item)
+            return menu_item
+        except SQLAlchemyError as e:
+            db.rollback()
+            raise e
+
+    @classmethod
+    def delete(cls, db: Session, menu_item_id: int) -> bool:
+        """Delete menu item"""
+        try:
+            menu_item = cls.get_by_id(db, menu_item_id)
+            if menu_item:
+                db.delete(menu_item)
+                db.commit()
+                return True
+            return False
+        except SQLAlchemyError as e:
+            db.rollback()
+            raise e
+

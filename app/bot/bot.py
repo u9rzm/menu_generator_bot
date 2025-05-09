@@ -10,7 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
-from aiogram.ext.contexts import ContextTypes
+import traceback
 
 API_URL = os.getenv("API_URL")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -37,18 +37,23 @@ class OrganizationStates(StatesGroup):
 async def register_user(user_id: int) -> bool:
     """Регистрирует пользователя в базе данных"""
     try:
+        logger.info(f"Attempting to register user {user_id} with API at {API_URL}")
         async with aiohttp.ClientSession() as session:
-            async with session.post(f"{API_URL}/register_user?tid={user_id}") as resp:
+            url = f"{API_URL}/register_user?tid={user_id}"
+            logger.info(f"Making POST request to {url}")
+            async with session.post(url) as resp:
+                response_text = await resp.text()
+                logger.info(f"API response status: {resp.status}, body: {response_text}")
                 if resp.status == 200:
                     user_data = await resp.json()
                     logger.info(f"User {user_id} registered successfully: {user_data}")
                     return True
                 else:
-                    error_text = await resp.text()
-                    logger.error(f"Failed to register user {user_id}: {error_text}")
+                    logger.error(f"Failed to register user {user_id}: {response_text}")
                     return False
     except Exception as e:
         logger.error(f"Error registering user {user_id}: {str(e)}")
+        logger.error(traceback.format_exc())
         return False
 
 def get_main_buttons() -> InlineKeyboardMarkup:
@@ -80,6 +85,30 @@ def get_organization_buttons() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="📝 Создать организацию", callback_data="create_org")],
             [InlineKeyboardButton(text="❓ Помощь", callback_data="help")]
+        ]
+    )
+    return keyboard
+
+def get_theme_buttons(org_id: int) -> InlineKeyboardMarkup:
+    """Создает инлайн кнопки для выбора темы"""
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Современный темный", callback_data=f"theme_{org_id}_modern-dark")],
+            [InlineKeyboardButton(text="Светлый элегантный", callback_data=f"theme_{org_id}_light-elegant")],
+            [InlineKeyboardButton(text="Минималистичный", callback_data=f"theme_{org_id}_minimal")],
+            [InlineKeyboardButton(text="Винтажный", callback_data=f"theme_{org_id}_vintage")],
+            [InlineKeyboardButton(text="Футуристический", callback_data=f"theme_{org_id}_futuristic")],
+            [InlineKeyboardButton(text="Природный", callback_data=f"theme_{org_id}_nature")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data=f"org_actions_{org_id}")]
+        ]
+    )
+    return keyboard
+
+def get_back_to_org_buttons(org_id: int) -> InlineKeyboardMarkup:
+    """Создает инлайн кнопки для возврата к организации"""
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад к организации", callback_data=f"org_actions_{org_id}")]
         ]
     )
     return keyboard
@@ -470,71 +499,50 @@ async def organization_actions_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("generate_web_"))
-async def generate_web_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик кнопки генерации веб-страницы"""
-    query = update.callback_query
-    await query.answer()
-    
-    # Получаем ID организации из callback_data
-    org_id = int(query.data.split(':')[1])
-    
-    try:
-        # Получаем список доступных тем
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{API_URL}/api/themes") as response:
-                if response.status == 200:
-                    data = await response.json()
-                    themes = data['themes']
-                else:
-                    await query.message.reply_text("Ошибка при получении списка тем")
-                    return
-    except Exception as e:
-        await query.message.reply_text(f"Ошибка при получении списка тем: {str(e)}")
-        return
-
-    # Создаем клавиатуру с темами
-    keyboard = []
-    for theme_id, theme_name in themes.items():
-        keyboard.append([InlineKeyboardButton(
-            theme_name,
-            callback_data=f"theme:{org_id}:{theme_id}"
-        )])
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.message.reply_text(
-        "Выберите стиль оформления меню:",
-        reply_markup=reply_markup
+async def generate_web_callback(callback_query: types.CallbackQuery):
+    """Обработчик генерации веб-страницы меню"""
+    org_id = int(callback_query.data.split('_')[-1])
+    await callback_query.message.edit_text(
+        "Выберите тему для вашего меню:",
+        reply_markup=get_theme_buttons(org_id)
     )
+    await callback_query.answer()
 
-async def theme_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@dp.callback_query(lambda c: c.data.startswith("theme_"))
+async def theme_selected_callback(callback_query: types.CallbackQuery):
     """Обработчик выбора темы"""
-    query = update.callback_query
-    await query.answer()
-    
-    # Получаем ID организации и тему из callback_data
-    _, org_id, theme = query.data.split(':')
+    data = callback_query.data.split('_')
+    org_id = int(data[-2])
+    theme = data[-1]
     
     try:
-        # Генерируем страницу меню
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{API_URL}/api/organizations/{org_id}/menu/generate",
                 json={"theme": theme}
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    url = data['url']
-                    await query.message.reply_text(
-                        f"Страница меню успешно сгенерирована!\n"
-                        f"Вы можете просмотреть её по ссылке:\n{url}"
+            ) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    menu_url = result.get('url')
+                    await callback_query.message.edit_text(
+                        f"✅ Ваше меню успешно сгенерировано!\n\n"
+                        f"🔗 Ссылка на меню: {menu_url}\n\n"
+                        f"Вы можете поделиться этой ссылкой с вашими клиентами.",
+                        reply_markup=get_back_to_org_buttons(org_id)
                     )
                 else:
-                    error_data = await response.json()
-                    await query.message.reply_text(
-                        f"Ошибка при генерации страницы: {error_data.get('detail', 'Неизвестная ошибка')}"
+                    error_text = await resp.text()
+                    await callback_query.message.edit_text(
+                        f"❌ Ошибка при генерации меню: {error_text}",
+                        reply_markup=get_back_to_org_buttons(org_id)
                     )
     except Exception as e:
-        await query.message.reply_text(f"Ошибка при генерации страницы: {str(e)}")
+        logger.error(f"Error generating menu: {str(e)}")
+        await callback_query.message.edit_text(
+            f"❌ Произошла ошибка при генерации меню: {str(e)}",
+            reply_markup=get_back_to_org_buttons(org_id)
+        )
+    await callback_query.answer()
 
 if __name__ == "__main__":
     import asyncio

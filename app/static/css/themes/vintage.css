@@ -1,0 +1,72 @@
+/* Vintage Theme */
+body {
+    font-family: 'Playfair Display', serif;
+    background-color: #f4e4bc;
+    color: #2c1810;
+}
+
+.menu-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.header {
+    background: #2c1810;
+    color: #f4e4bc;
+    padding: 2rem 0;
+    margin-bottom: 2rem;
+    border-bottom: 3px solid #8b4513;
+}
+
+.category-card {
+    background: #fff9e6;
+    border-radius: 0;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid #8b4513;
+    box-shadow: 3px 3px 0 #8b4513;
+}
+
+.price {
+    color: #8b4513;
+    font-weight: 600;
+    font-family: 'Courier New', monospace;
+}
+
+.menu-item {
+    border-bottom: 1px dashed #8b4513;
+    padding: 1rem 0;
+}
+
+.menu-item:last-child {
+    border-bottom: none;
+}
+
+.description {
+    color: #5c3d2e;
+    font-size: 0.9rem;
+    margin-top: 0.5rem;
+    font-style: italic;
+}
+
+.qr-code {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    background: #fff9e6;
+    padding: 1rem;
+    border: 1px solid #8b4513;
+}
+
+@media (max-width: 768px) {
+    .menu-container {
+        padding: 1rem;
+    }
+    .header {
+        padding: 1.5rem 0;
+    }
+    .qr-code {
+        display: none;
+    }
+} 

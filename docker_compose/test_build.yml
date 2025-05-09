@@ -80,6 +80,7 @@ services:
       - ../app/bot/:/app/
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
+      API_URL: "http://api:${API_PORT}"
     depends_on:
       api:
         condition: service_healthy

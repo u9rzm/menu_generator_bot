@@ -1,0 +1,19 @@
+{% macro qr_code(url) %}
+<div class="qr-code">
+    <div id="qrcode"></div>
+    <p class="text-sm text-gray-600 mt-2 text-center">Отсканируйте для просмотра меню</p>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        QRCode.toCanvas(document.getElementById('qrcode'), '{{ url }}', {
+            width: 128,
+            margin: 1,
+            color: {
+                dark: '#000000',
+                light: '#ffffff'
+            }
+        });
+    });
+</script>
+{% endmacro %} 

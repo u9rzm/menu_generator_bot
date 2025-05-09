@@ -1,6 +1,6 @@
 # app/models.py
 from database import Base, get_db
-from sqlalchemy import Column, Integer, String, Numeric, Boolean, DateTime, BigInteger
+from sqlalchemy import Column, Integer, String, Numeric, Boolean, DateTime, BigInteger, ForeignKey
 from datetime import datetime, UTC
 from dataclasses import dataclass
 from decimal import Decimal
@@ -263,6 +263,9 @@ class UserTable:
     id: Column = Column(Integer, primary_key=True, index=True)
     tid: Column = Column(BigInteger, nullable=False)
     owner: Column = Column(Boolean, default=False)
+    language: Column = Column(String, default='ru')
+    created: Column = Column(DateTime, default=lambda: datetime.now(UTC))
+    updated: Column = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
 @dataclass
 class UserData:
@@ -270,12 +273,18 @@ class UserData:
     tid: int
     owner: bool = False
     id: Optional[int] = None
+    language: str = 'ru'
+    created: Optional[datetime] = None
+    updated: Optional[datetime] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
             "tid": self.tid,
-            "owner": self.owner
+            "owner": self.owner,
+            "language": self.language,
+            "created": self.created.isoformat() if self.created else None,
+            "updated": self.updated.isoformat() if self.updated else None
         }
 
     @classmethod
@@ -283,7 +292,10 @@ class UserData:
         return cls(
             id=data.get('id'),
             tid=data['tid'],
-            owner=data.get('owner', False)
+            owner=data.get('owner', False),
+            language=data.get('language', 'ru'),
+            created=datetime.fromisoformat(data['created']) if data.get('created') else None,
+            updated=datetime.fromisoformat(data['updated']) if data.get('updated') else None
         )
 
 class User(Base):
@@ -293,19 +305,26 @@ class User(Base):
     id = UserTable.id
     tid = UserTable.tid
     owner = UserTable.owner
+    language = UserTable.language
+    created = UserTable.created
+    updated = UserTable.updated
 
     def to_dataclass(self) -> UserData:
         return UserData(
             id=self.id,
             tid=self.tid,
-            owner=self.owner
+            owner=self.owner,
+            language=self.language,
+            created=self.created,
+            updated=self.updated
         )
 
     @classmethod
     def from_dataclass(cls, data: UserData) -> 'User':
         return cls(
             tid=data.tid,
-            owner=data.owner
+            owner=data.owner,
+            language=data.language
         )
 
     @classmethod
@@ -335,4 +354,111 @@ class User(Base):
     def get_owners(cls, db: Session) -> List['User']:
         """Get all owner users"""
         return db.query(cls).filter(cls.owner == True).all()
+
+@dataclass
+class OrganizationTable:
+    """Dataclass for defining organizations table structure"""
+    __tablename__: str = "organizations"
+    
+    id: Column = Column(Integer, primary_key=True, index=True)
+    name: Column = Column(String, nullable=False)
+    description: Column = Column(String, nullable=True)
+    owner_id: Column = Column(Integer, ForeignKey("users.id"), nullable=False)
+    menu_table_name: Column = Column(String, nullable=False)
+    created: Column = Column(DateTime, default=lambda: datetime.now(UTC))
+    updated: Column = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+@dataclass
+class OrganizationData:
+    """Dataclass for organization data operations"""
+    name: str
+    description: Optional[str] = None
+    owner_id: Optional[int] = None
+    menu_table_name: Optional[str] = None
+    id: Optional[int] = None
+    created: Optional[datetime] = None
+    updated: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "owner_id": self.owner_id,
+            "menu_table_name": self.menu_table_name,
+            "created": self.created.isoformat() if self.created else None,
+            "updated": self.updated.isoformat() if self.updated else None
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'OrganizationData':
+        return cls(
+            id=data.get('id'),
+            name=data['name'],
+            description=data.get('description'),
+            owner_id=data.get('owner_id'),
+            menu_table_name=data.get('menu_table_name'),
+            created=datetime.fromisoformat(data['created']) if data.get('created') else None,
+            updated=datetime.fromisoformat(data['updated']) if data.get('updated') else None
+        )
+
+class Organization(Base):
+    """SQLAlchemy model for organizations table"""
+    __tablename__ = OrganizationTable.__tablename__
+
+    id = OrganizationTable.id
+    name = OrganizationTable.name
+    description = OrganizationTable.description
+    owner_id = OrganizationTable.owner_id
+    menu_table_name = OrganizationTable.menu_table_name
+    created = OrganizationTable.created
+    updated = OrganizationTable.updated
+
+    def to_dataclass(self) -> OrganizationData:
+        return OrganizationData(
+            id=self.id,
+            name=self.name,
+            description=self.description,
+            owner_id=self.owner_id,
+            menu_table_name=self.menu_table_name,
+            created=self.created,
+            updated=self.updated
+        )
+
+    @classmethod
+    def from_dataclass(cls, data: OrganizationData) -> 'Organization':
+        return cls(
+            name=data.name,
+            description=data.description,
+            owner_id=data.owner_id,
+            menu_table_name=data.menu_table_name
+        )
+
+    @classmethod
+    def create(cls, db: Session, org_data: OrganizationData) -> 'Organization':
+        """Create new organization"""
+        try:
+            org = cls.from_dataclass(org_data)
+            db.add(org)
+            db.commit()
+            db.refresh(org)
+            return org
+        except SQLAlchemyError as e:
+            db.rollback()
+            raise e
+
+    @classmethod
+    def get_by_id(cls, db: Session, org_id: int) -> Optional['Organization']:
+        """Get organization by ID"""
+        return db.query(cls).filter(cls.id == org_id).first()
+
+    @classmethod
+    def get_by_owner(cls, db: Session, owner_id: int) -> List['Organization']:
+        """Get organizations by owner"""
+        return db.query(cls).filter(cls.owner_id == owner_id).all()
+
+    @classmethod
+    def get_all(cls, db: Session, skip: int = 0, limit: int = 100) -> List['Organization']:
+        """Get all organizations with pagination"""
+        return db.query(cls).offset(skip).limit(limit).all()
 

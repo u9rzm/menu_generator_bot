@@ -45,6 +45,11 @@ btest:
 .PHONY: btest-down
 btest-down:
 	${DC} -f ${TBUILD_FILE} down
+	docker volume rm docker_compose_postgres_data || true
+
+.PHONY: btest-down-and-clear
+btest-down-and-clear:
+	${DC} -f ${TBUILD_FILE} down -v
 
 .PHONY: test
 test:

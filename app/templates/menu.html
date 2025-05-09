@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "components/category.html" import category_card %}
+{% from "components/qr_code.html" import qr_code %}
+
+{% block title %}{{ organization.name }} - Меню{% endblock %}
+
+{% block header_title %}{{ organization.name }}{% endblock %}
+
+{% block header_description %}
+{% if organization.description %}
+<p class="text-gray-300">{{ organization.description }}</p>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    {% for category, items in categories.items() %}
+        {{ category_card(category, items) }}
+    {% endfor %}
+</div>
+{% endblock %}
+
+{% block qr_code %}
+{{ qr_code(menu_url) }}
+{% endblock %} 

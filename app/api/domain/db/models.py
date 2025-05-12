@@ -1,5 +1,4 @@
-# app/models.py
-from database import Base, get_db
+from domain.db.database import Base, get_db
 from sqlalchemy import Column, Integer, String, Numeric, Boolean, DateTime, BigInteger, ForeignKey
 from datetime import datetime, UTC
 from dataclasses import dataclass

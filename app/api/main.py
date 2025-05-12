@@ -14,9 +14,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from database import get_db, init_db, get_db_session
-from models import Menu, MenuData, Main, MainData, User, UserData, Organization, OrganizationData, MenuItem
-from tables import get_table_info, get_table_structure, get_table_data
+from domain.db.database import get_db, init_db, get_db_session
+from domain.db.models import Menu, MenuData, Main, MainData, User, UserData, Organization, OrganizationData, MenuItem
+from domain.entity.tables import get_table_info, get_table_structure, get_table_data
+from routes.routes import router
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -34,6 +35,8 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title="Menu API", lifespan=lifespan)
+#Routers
+app.include_router(router)
 
 # Конфигурация
 BASE_URL = "http://localhost:8000"
@@ -93,86 +96,7 @@ async def debug_tables():
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
-# @app.get("/debug/tables/{table_name}/structure")
-# async def debug_table_structure(table_name: str):
-#     """Debug endpoint to check specific table structure"""
-#     try:
-#         logger.info(f"Starting debug_table_structure endpoint for {table_name}")
-#         db = get_db_session()
-#         try:
-#             return get_table_structure(db, table_name)
-#         finally:
-#             db.close()
-#     except Exception as e:
-#         logger.error(f"Error in debug_table_structure: {str(e)}")
-#         logger.error(traceback.format_exc())
-#         raise HTTPException(status_code=500, detail=str(e))
 
-# @app.get("/debug/tables/{table_name}/data")
-# async def debug_table_data(table_name: str, limit: int = 5):
-#     """Debug endpoint to check specific table data"""
-#     try:
-#         logger.info(f"Starting debug_table_data endpoint for {table_name}")
-#         db = get_db_session()
-#         try:
-#             return get_table_data(db, table_name, limit)
-#         finally:
-#             db.close()
-#     except Exception as e:
-#         logger.error(f"Error in debug_table_data: {str(e)}")
-#         logger.error(traceback.format_exc())
-#         raise HTTPException(status_code=500, detail=str(e))
-
-# # Main table endpoints
-# @app.get("/main", response_model=List[dict])
-# def get_main_items(
-#     skip: int = 0,
-#     limit: int = 100,
-#     owner: Optional[str] = None,
-#     db: Session = Depends(get_db_session)
-# ):
-#     try:
-#         if owner:
-#             items = Main.get_by_owner(db, owner)
-#         else:
-#             items = Main.get_all(db, skip, limit)
-#         return [item.to_dataclass().to_dict() for item in items]
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-#     finally:
-#         db.close()
-
-# @app.get("/main/{main_id}", response_model=dict)
-# def get_main_item(main_id: int, db: Session = Depends(get_db_session)):
-#     try:
-#         item = Main.get_by_id(db, main_id)
-#         if not item:
-#             raise HTTPException(status_code=404, detail="Main item not found")
-#         return item.to_dataclass().to_dict()
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-#     finally:
-#         db.close()
-
-# @app.post("/main", response_model=dict)
-# def create_main_item(
-#     name: str = Form(...),
-#     owner: str = Form(...),
-#     name_menu_table: str = Form(...),
-#     db: Session = Depends(get_db)
-# ):
-#     try:
-#         main_data = MainData(
-#             name=name,
-#             owner=owner,
-#             name_menu_table=name_menu_table
-#         )
-#         main_item = Main.create(db, main_data)
-#         return main_item.to_dataclass().to_dict()
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
 
 # User endpoints
 @app.get("/users", response_model=List[dict])
@@ -845,3 +769,86 @@ async def view_menu(org_id: int, theme: str = 'modern-dark', request: Request = 
         raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail='Внутренняя ошибка сервера')
+
+
+
+# @app.get("/debug/tables/{table_name}/structure")
+# async def debug_table_structure(table_name: str):
+#     """Debug endpoint to check specific table structure"""
+#     try:
+#         logger.info(f"Starting debug_table_structure endpoint for {table_name}")
+#         db = get_db_session()
+#         try:
+#             return get_table_structure(db, table_name)
+#         finally:
+#             db.close()
+#     except Exception as e:
+#         logger.error(f"Error in debug_table_structure: {str(e)}")
+#         logger.error(traceback.format_exc())
+#         raise HTTPException(status_code=500, detail=str(e))
+
+# @app.get("/debug/tables/{table_name}/data")
+# async def debug_table_data(table_name: str, limit: int = 5):
+#     """Debug endpoint to check specific table data"""
+#     try:
+#         logger.info(f"Starting debug_table_data endpoint for {table_name}")
+#         db = get_db_session()
+#         try:
+#             return get_table_data(db, table_name, limit)
+#         finally:
+#             db.close()
+#     except Exception as e:
+#         logger.error(f"Error in debug_table_data: {str(e)}")
+#         logger.error(traceback.format_exc())
+#         raise HTTPException(status_code=500, detail=str(e))
+
+# # Main table endpoints
+# @app.get("/main", response_model=List[dict])
+# def get_main_items(
+#     skip: int = 0,
+#     limit: int = 100,
+#     owner: Optional[str] = None,
+#     db: Session = Depends(get_db_session)
+# ):
+#     try:
+#         if owner:
+#             items = Main.get_by_owner(db, owner)
+#         else:
+#             items = Main.get_all(db, skip, limit)
+#         return [item.to_dataclass().to_dict() for item in items]
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+#     finally:
+#         db.close()
+
+# @app.get("/main/{main_id}", response_model=dict)
+# def get_main_item(main_id: int, db: Session = Depends(get_db_session)):
+#     try:
+#         item = Main.get_by_id(db, main_id)
+#         if not item:
+#             raise HTTPException(status_code=404, detail="Main item not found")
+#         return item.to_dataclass().to_dict()
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+#     finally:
+#         db.close()
+
+# @app.post("/main", response_model=dict)
+# def create_main_item(
+#     name: str = Form(...),
+#     owner: str = Form(...),
+#     name_menu_table: str = Form(...),
+#     db: Session = Depends(get_db)
+# ):
+#     try:
+#         main_data = MainData(
+#             name=name,
+#             owner=owner,
+#             name_menu_table=name_menu_table
+#         )
+#         main_item = Main.create(db, main_data)
+#         return main_item.to_dataclass().to_dict()
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))

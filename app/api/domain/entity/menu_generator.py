@@ -1,9 +1,10 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from app.models import Organization, MenuItem
-from app.templates import templates
-from app.config import settings
+from domain.db.models import Organization, MenuItem
+# from templates import templates
+# from config import settings
 import os
+# from fastapi.templating import Jinja2Templates
 
 THEMES = {
     'modern-dark': 'Современный темный',
@@ -13,6 +14,8 @@ THEMES = {
     'futuristic': 'Футуристический',
     'nature': 'Природный'
 }
+
+# templates = Jinja2Templates(directory="templates") 
 
 def generate_menu_page(org_id: int, theme: str, db: Session) -> str:
     """Генерирует HTML страницу меню для организации"""

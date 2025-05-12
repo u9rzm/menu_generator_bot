@@ -11,6 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
 import traceback
+# from front import get_main_buttons, get_help_buttons, get_organization_buttons, get_theme_buttons, get_back_to_org_buttons, log_user_info
 
 API_URL = os.getenv("API_URL")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -55,18 +56,19 @@ async def register_user(user_id: int) -> bool:
         logger.error(f"Error registering user {user_id}: {str(e)}")
         logger.error(traceback.format_exc())
         return False
-
+#def for menu
+#Main menu
 def get_main_buttons() -> InlineKeyboardMarkup:
     """Создает инлайн кнопки для основного меню"""
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📝 Создать таблицу", callback_data="create_table")],
+            [InlineKeyboardButton(text="📝 Создать организацию", callback_data="create_org")],
             [InlineKeyboardButton(text="🏢 Мои организации", callback_data="my_organizations")],
             [InlineKeyboardButton(text="❓ Помощь", callback_data="help")]
         ]
     )
     return keyboard
-
+#Help menu
 def get_help_buttons() -> InlineKeyboardMarkup:
     """Создает инлайн кнопки помощи"""
     keyboard = InlineKeyboardMarkup(
@@ -84,6 +86,7 @@ def get_organization_buttons() -> InlineKeyboardMarkup:
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📝 Создать организацию", callback_data="create_org")],
+            [InlineKeyboardButton(text="🏢 Мои организации", callback_data="my_organizations")],
             [InlineKeyboardButton(text="❓ Помощь", callback_data="help")]
         ]
     )
@@ -128,7 +131,9 @@ def log_user_info(message: Message):
         f"Chat ID: {chat.id}\n"
         f"Message Text: {message.text}"
     )
-
+#_________________________________________________________________________________________________________
+#Comands
+# Start
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     """Обработчик команды /start"""
@@ -139,11 +144,6 @@ async def cmd_start(message: Message):
         success = await register_user(message.from_user.id)
         if success:
             await message.answer(
-                "👋 Добро пожаловать!\n\n"
-                "Я бот для управления меню. Используйте следующие команды:\n"
-                "/menu - Просмотр меню\n"
-                "/create_org - Создать организацию\n"
-                "/help - Получить помощь",
                 reply_markup=get_main_buttons()
             )
         else:
@@ -152,14 +152,13 @@ async def cmd_start(message: Message):
             )
     else:
         await message.answer(
-            "👋 С возвращением!\n\n"
+            "👋 Привет!\n\n"
             "Я бот для управления меню. Используйте следующие команды:\n"
             "/menu - Просмотр меню\n"
-            "/create_org - Создать организацию\n"
             "/help - Получить помощь",
             reply_markup=get_main_buttons()
         )
-
+# Создать организацию
 @dp.callback_query(lambda c: c.data == "create_org")
 async def create_org_callback(callback_query: types.CallbackQuery, state: FSMContext):
     """Начало процесса создания организации"""
@@ -217,17 +216,22 @@ async def process_org_menu(message: Message, state: FSMContext):
                 if resp.status != 200:
                     raise Exception(f"Failed to register user: {await resp.text()}")
                 user = await resp.json()
+                print(f'\nSending user data\n {user}\n')
 
             # Создаем организацию
             form_data = aiohttp.FormData()
             form_data.add_field('name', org_name)
             form_data.add_field('description', org_description)
-            form_data.add_field('owner_id', str(user['id']))  # Используем ID из таблицы users
+            form_data.add_field('owner_id', str(user['id'])) 
+            print(form_data) # Используем ID из таблицы users
+
 
             async with session.post(f"{API_URL}/organizations", data=form_data) as resp:
+
                 if resp.status != 200:
                     raise Exception(f"Failed to create organization: {await resp.text()}")
                 org = await resp.json()
+                print('Организация записана в базу')
 
             # Загружаем меню
             with open(file_path, 'rb') as f:
@@ -241,34 +245,20 @@ async def process_org_menu(message: Message, state: FSMContext):
 
         await message.answer(
             f"✅ Организация '{org_name}' успешно создана!\n\n"
-            "Теперь вы можете:\n"
-            "/menu - Просмотреть меню\n"
-            "/help - Получить помощь"
+
         )
     except Exception as e:
         logger.error(f"Error creating organization: {str(e)}")
         await message.answer(
-            "❌ Произошла ошибка при создании организации. Пожалуйста, попробуйте позже."
+            f"❌ Произошла ошибка при создании организации. Пожалуйста, попробуйте позже. {str(e)}"
         )
     finally:
         await state.clear()
 
-@dp.callback_query(lambda c: c.data == "create_menu")
-async def create_table_callback(callback_query: types.CallbackQuery):
-    await callback_query.message.edit_text(
-        "Введите название таблицы в формате:\n"
-        "/create_table [название]"
-    )
-    await callback_query.answer()
 
 @dp.callback_query(lambda c: c.data == "help")
 async def help_callback(callback_query: types.CallbackQuery):
-    await callback_query.message.edit_text(
-        "📚 Справка по использованию бота:\n\n"
-        "1. Нажмите '📝 Создать Меню Органицации'\n"
-        "2. Введите название таблицы\n"
-        "3. Готово! Таблица создана\n\n"
-        "Дополнительная информация:",
+    await callback_query.message.edit_text(        
         reply_markup=get_help_buttons()
     )
     await callback_query.answer()
@@ -276,46 +266,13 @@ async def help_callback(callback_query: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data == "back_to_main")
 async def back_to_main_callback(callback_query: types.CallbackQuery):
     await callback_query.message.edit_text(
-        "👋 Привет! Я бот для создания таблиц.\n\n"
-        "Выберите действие:",
+        "👋 Выберите действие:\n\n",
         reply_markup=get_main_buttons()
     )
     await callback_query.answer()
 
-@dp.message(Command("create_org"))
-async def cmd_create_org(message: Message, state: FSMContext):
-    """Обработчик команды /create_org"""
-    log_user_info(message)
-    
-    await message.answer(
-        "Введите название вашей организации:"
-    )
-    await state.set_state(OrganizationStates.waiting_for_name)
 
-@dp.message(Command("create_table"))
-async def create_table(message: Message):
-    log_user_info(message)
-    parts = message.text.split(maxsplit=1)
-    if len(parts) != 2:
-        await message.answer(
-            "❗ Укажи название: /create_table BarName",
-            reply_markup=get_main_buttons()
-        )
-        return
-    bar_name = parts[1].strip()
-    async with aiohttp.ClientSession() as session:
-        async with session.post(f"{API_URL}/create_table/{bar_name}") as resp:
-            if resp.status == 200:
-                await message.answer(
-                    f"✅ Таблица '{bar_name}' создана.",
-                    reply_markup=get_main_buttons()
-                )
-            else:
-                await message.answer(
-                    f"❌ Ошибка: {await resp.text()}",
-                    reply_markup=get_main_buttons()
-                )
-
+#Help menu 
 @dp.message(Command("help"))
 async def cmd_help(message: Message):
     """Обработчик команды /help"""
@@ -331,45 +288,7 @@ async def cmd_help(message: Message):
     
     await message.answer(help_text)
 
-@dp.message(Command("menu"))
-async def cmd_menu(message: Message):
-    """Обработчик команды /menu"""
-    log_user_info(message)
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            # Получаем список организаций пользователя
-            async with session.get(f"{API_URL}/organizations?owner_id={message.from_user.id}") as resp:
-                if resp.status != 200:
-                    raise Exception(f"Failed to get organizations: {await resp.text()}")
-                organizations = await resp.json()
 
-            if not organizations:
-                await message.answer(
-                    "У вас пока нет организаций. Создайте организацию командой /create_org"
-                )
-                return
-
-            # Если у пользователя только одна организация, показываем её меню
-            if len(organizations) == 1:
-                org = organizations[0]
-                await show_organization_menu(message, org['id'])
-                return
-
-            # Если несколько организаций, предлагаем выбрать
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text=org['name'], callback_data=f"show_menu_{org['id']}")]
-                    for org in organizations
-                ]
-            )
-            await message.answer(
-                "Выберите организацию, меню которой хотите посмотреть:",
-                reply_markup=keyboard
-            )
-    except Exception as e:
-        logger.error(f"Error fetching menu: {str(e)}")
-        await message.answer("❌ Произошла ошибка при загрузке меню. Пожалуйста, попробуйте позже.")
 
 async def show_organization_menu(message: Message, org_id: int):
     """Показывает меню организации"""
@@ -417,7 +336,7 @@ async def show_menu_callback(callback_query: types.CallbackQuery):
     org_id = int(callback_query.data.split("_")[2])
     await show_organization_menu(callback_query.message, org_id)
     await callback_query.answer()
-
+#Кнопка Мои организации
 @dp.callback_query(lambda c: c.data == "my_organizations")
 async def my_organizations_callback(callback_query: types.CallbackQuery):
     """Обработчик кнопки 'Мои организации'"""
@@ -465,8 +384,7 @@ async def my_organizations_callback(callback_query: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data.startswith("org_actions_"))
 async def organization_actions_callback(callback_query: types.CallbackQuery):
     """Обработчик действий с организацией"""
-    org_id = int(callback_query.data.split("_")[2])
-    
+    org_id = int(callback_query.data.split("_")[2])    
     try:
         async with aiohttp.ClientSession() as session:
             # Получаем информацию об организации
@@ -497,7 +415,7 @@ async def organization_actions_callback(callback_query: types.CallbackQuery):
             reply_markup=get_main_buttons()
         )
     await callback_query.answer()
-
+# Generate Menu Page
 @dp.callback_query(lambda c: c.data.startswith("generate_web_"))
 async def generate_web_callback(callback_query: types.CallbackQuery):
     """Обработчик генерации веб-страницы меню"""
@@ -518,7 +436,7 @@ async def theme_selected_callback(callback_query: types.CallbackQuery):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{API_URL}/api/organizations/{org_id}/menu/generate",
+                f"{API_URL}/organizations/{org_id}/menu/generate",
                 json={"theme": theme}
             ) as resp:
                 if resp.status == 200:
@@ -543,7 +461,7 @@ async def theme_selected_callback(callback_query: types.CallbackQuery):
             reply_markup=get_back_to_org_buttons(org_id)
         )
     await callback_query.answer()
-
+#__________________________________________________________________________________________
 if __name__ == "__main__":
     import asyncio
     asyncio.run(dp.start_polling(bot))

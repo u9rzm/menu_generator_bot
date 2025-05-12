@@ -15,9 +15,10 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from domain.db.database import get_db, init_db, get_db_session
-from domain.db.models import Menu, MenuData, Main, MainData, User, UserData, Organization, OrganizationData, MenuItem
-from domain.entity.tables import get_table_info, get_table_structure, get_table_data
-from routes.routes import router
+from domain.db.models import Menu, MenuData, Main, MainData, Organization, OrganizationData, MenuItem, User, UserData
+from domain.entity.tables import get_table_info , get_table_structure, get_table_data
+
+# from routes.users import router as router_users
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -36,11 +37,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Menu API", lifespan=lifespan)
 #Routers
-app.include_router(router)
+
+# app.include_router(router_users)
 
 # Конфигурация
-BASE_URL = "http://localhost:8000"
-STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+BASE_URL = "http://api:2424"
+STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 PAGES_DIR = os.path.join(STATIC_DIR, "pages")
 
 # Создаем директории если их нет
@@ -51,7 +53,9 @@ os.makedirs(PAGES_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # Настраиваем шаблоны
-templates = Jinja2Templates(directory="app/templates")
+templates = Jinja2Templates(directory="templates")
+
+
 
 # Модели данных
 class ThemeRequest(BaseModel):
@@ -67,6 +71,10 @@ THEMES = {
     'nature': 'Природный'
 }
 
+#templates
+templates = Jinja2Templates(directory="templates")
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     logger.error(f"Unhandled exception: {str(exc)}")
@@ -75,12 +83,12 @@ async def global_exception_handler(request, exc):
         status_code=500,
         content={"detail": f"Internal server error: {str(exc)}"}
     )
-
+#Healthcheck___________________________________________________________________________
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy"}
-
+#Debug Tabels
 @app.get("/debug/tables")
 async def debug_tables():
     """Debug endpoint to check table structures and data"""
@@ -95,10 +103,8 @@ async def debug_tables():
         logger.error(f"Error in debug_tables: {str(e)}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
-
-
-
-# User endpoints
+#Debug Users________________________________________________
+# # User endpoints
 @app.get("/users", response_model=List[dict])
 def get_users(
     skip: int = 0,
@@ -115,96 +121,6 @@ def get_users(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/users/{user_id}", response_model=dict)
-def get_user(user_id: int, db: Session = Depends(get_db_session)):
-    try:
-        item = User.get_by_id(db, user_id)
-        if not item:
-            raise HTTPException(status_code=404, detail="User not found")
-        return item.to_dataclass().to_dict()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
-
-@app.get("/users/telegram/{tid}", response_model=dict)
-def get_user_by_tid(tid: int, db: Session = Depends(get_db_session)):
-    try:
-        item = User.get_by_tid(db, tid)
-        if not item:
-            raise HTTPException(status_code=404, detail="User not found")
-        return item.to_dataclass().to_dict()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
-
-@app.post("/users", response_model=dict)
-def create_user(
-    tid: int = Form(...),
-    owner: bool = Form(False),
-    db: Session = Depends(get_db_session)
-):
-    try:
-        user_data = UserData(
-            tid=tid,
-            owner=owner
-        )
-        user_item = User.create(db, user_data)
-        return user_item.to_dataclass().to_dict()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
-
-@app.post("/register_user")
-async def register_user(tid: int = Query(...), db: Session = Depends(get_db_session)):
-    """Register a new user or return existing user"""
-    try:
-        logger.info(f"Attempting to register user with tid: {tid}")
-        
-        # Проверяем существование пользователя
-        existing_user = User.get_by_tid(db, tid)
-        if existing_user:
-            logger.info(f"User with tid {tid} already exists")
-            return existing_user.to_dataclass().to_dict()
-        
-        # Создаем нового пользователя
-        user_data = UserData(tid=tid, owner=False)
-        new_user = User.create(db, user_data)
-        logger.info(f"Successfully registered new user with tid: {tid}")
-        
-        return new_user.to_dataclass().to_dict()
-    except Exception as e:
-        logger.error(f"Error registering user: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
-
-@app.post("/users/{user_id}/increment_message")
-def increment_message_count(user_id: int, db: Session = Depends(get_db_session)):
-    """Увеличивает счетчик сообщений пользователя"""
-    try:
-        user = User.get_by_id(db, user_id)
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        user.message_count += 1
-        db.commit()
-        db.refresh(user)
-        
-        return user.to_dataclass().to_dict()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
 
 # Получение всех элементов меню
 @app.get("/menu", response_model=List[dict])
@@ -587,58 +503,7 @@ def get_organization_menu_categories(
     finally:
         db.close()
 
-# Вспомогательные функции
-def generate_menu_page(org_id: int, theme: str, db: Session) -> str:
-    """Генерирует HTML страницу меню для организации"""
-    if theme not in THEMES:
-        raise HTTPException(status_code=400, detail=f"Неизвестная тема: {theme}")
 
-    org = db.query(Organization).filter(Organization.id == org_id).first()
-    if not org:
-        raise HTTPException(status_code=404, detail=f"Организация не найдена: {org_id}")
-
-    menu_items = db.query(MenuItem).filter(
-        MenuItem.organization_id == org_id,
-        MenuItem.is_available == True
-    ).all()
-
-    categories = {}
-    for item in menu_items:
-        if item.category not in categories:
-            categories[item.category] = []
-        categories[item.category].append(item)
-
-    menu_url = f"{BASE_URL}/menu/{org_id}"
-
-    html_content = templates.TemplateResponse(
-        'menu.html',
-        {
-            'request': {},
-            'organization': org,
-            'categories': categories,
-            'menu_url': menu_url,
-            'theme': theme
-        }
-    ).body.decode()
-
-    filename = f"menu_{org_id}_{theme}.html"
-    filepath = os.path.join(PAGES_DIR, filename)
-
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(html_content)
-
-    return filename
-
-def get_menu_page_url(org_id: int, theme: str) -> str:
-    """Возвращает URL для страницы меню"""
-    filename = f"menu_{org_id}_{theme}.html"
-    return f"{BASE_URL}/static/pages/{filename}"
-
-def check_menu_page_exists(org_id: int, theme: str) -> bool:
-    """Проверяет существование сгенерированной страницы"""
-    filename = f"menu_{org_id}_{theme}.html"
-    filepath = os.path.join(PAGES_DIR, filename)
-    return os.path.exists(filepath)
 
 # API endpoints
 @app.get("/")
@@ -772,6 +637,247 @@ async def view_menu(org_id: int, theme: str = 'modern-dark', request: Request = 
 
 
 
+
+
+class ThemeRequest(BaseModel):
+    theme: str = 'modern-dark'
+
+
+#GET
+@app.get('/themes')
+async def get_themes():
+    """Возвращает список доступных тем"""
+    return {
+        'themes': THEMES
+    }
+
+@app.get('/organizations/{org_id}/menu/url')
+async def get_menu_url(org_id: int, theme: str = 'modern-dark'):
+    """Возвращает URL страницы меню"""
+    try:
+        if not check_menu_page_exists(org_id, theme):
+            raise HTTPException(status_code=404, detail='Страница не найдена')
+        url = get_menu_page_url(org_id, theme)
+        return {'url': url}
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail='Внутренняя ошибка сервера')
+
+@app.get("/organizations")
+async def get_organizations(db: Session = Depends(get_db)):
+    """Получает список организаций"""
+    organizations = db.query(Organization).all()
+    return organizations
+
+@app.get("/organizations/{org_id}")
+async def get_organization(org_id: int, db: Session = Depends(get_db)):
+    print("""Получает информацию об организации""")
+    org = db.query(Organization).filter(Organization.id == org_id).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Организация не найдена")
+    return org
+
+@app.get("/organizations/{org_id}/menu")
+async def get_organization_menu(org_id: int, db: Session = Depends(get_db)):
+    print(
+    """Получает меню организации"""
+    )
+    menu_items = db.query(MenuItem).filter(
+        MenuItem.organization_id == org_id,
+        MenuItem.is_available == True
+    ).all()
+    return menu_items
+#POST
+
+
+@app.post("/organizations")
+async def create_organization(name: str, description: str, owner_id: int, db: Session = Depends(get_db)):
+    """Создает новую организацию"""
+    org = Organization(name=name, description=description, owner_id=owner_id)
+    db.add(org)
+    db.commit()
+    db.refresh(org)
+    return org
+
+@app.post("/organizations/{org_id}/menu")
+async def add_menu_item(
+    org_id: int,
+    name: str,
+    price: float,
+    category: str,
+    description: str = None,
+    db: Session = Depends(get_db)
+):
+    """Добавляет пункт меню"""
+    menu_item = MenuItem(
+        organization_id=org_id,
+        name=name,
+        price=price,
+        category=category,
+        description=description,
+        is_available=True
+    )
+    db.add(menu_item)
+    db.commit()
+    db.refresh(menu_item)
+    return menu_item 
+
+#  функции Generation page
+def check_menu_page_exists(org_id: int, theme: str) -> bool:
+    """Проверяет существование сгенерированной страницы"""
+    filename = f"menu_{org_id}_{theme}.html"
+    filepath = os.path.join(PAGES_DIR, filename)
+    return os.path.exists(filepath)
+def get_menu_page_url(org_id: int, theme: str) -> str:
+    """Возвращает URL для страницы меню"""
+    filename = f"menu_{org_id}_{theme}.html"
+    return f"{BASE_URL}/static/pages/{filename}"
+
+
+
+def generate_menu_page(org_id: int, theme: str, db: Session):
+    print(f"Генерируем HTML страницу меню для организации\n " )
+    if theme not in THEMES:
+        raise HTTPException(status_code=400, detail=f"Неизвестная тема: {theme}")
+    org = db.query(Organization).filter(Organization.id == org_id).first()
+    if not org:
+        raise HTTPException(status_code=404, detail=f"Организация не найдена: {org_id}")
+
+    menu_items = db.query(MenuItem).filter(
+        MenuItem.organization_id == org_id,
+        MenuItem.is_available == True
+    ).all()
+
+    categories = {}
+    for item in menu_items:
+        if item.category not in categories:
+            categories[item.category] = []
+        categories[item.category].append(item)
+
+    menu_url = f"{BASE_URL}/menu/{org_id}"
+
+    template = templates.env.get_template("menu.html")
+    html_content = template.render(
+        organization=org,
+        categories=categories,
+        menu_url=menu_url,
+        theme=theme
+    )
+    print('sdfsdfsdfsdf')
+    filename = f"menu_{org_id}_{theme}.html"
+    filepath = os.path.join(PAGES_DIR, filename)
+
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+
+    return filename
+
+
+@app.post('/organizations/{org_id}/menu/generate')
+async def generate_menu(org_id: int, request: ThemeRequest, db: Session = Depends(get_db)):
+    print(f'Generating: {org_id}')
+    """Генерирует страницу меню для организации"""
+
+    try:
+        if check_menu_page_exists(org_id, request.theme):
+            url = get_menu_page_url(org_id, request.theme)
+            return {
+                'message': 'Страница уже существует',
+                'url': url
+            }
+
+        generate_menu_page(org_id, request.theme, db)
+        url = get_menu_page_url(org_id, request.theme)
+
+        return {
+            'message': 'Страница успешно сгенерирована',
+            'url': url
+        }
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Внутренняя ошибка сервера {e}')
+    
+#Users____________________________________________________________________________________
+#POST
+@app.post("/register_user")
+async def register_user(tid: int = Query(...), db: Session = Depends(get_db_session)):
+    """Register a new user or return existing user"""
+    try:
+        logger.info(f"Attempting to register user with tid: {tid}")
+        
+        # Проверяем существование пользователя
+        existing_user = User.get_by_tid(db, tid)
+        if existing_user:
+            logger.info(f"User with tid {tid} already exists")
+            return existing_user.to_dataclass().to_dict()
+        
+        # Создаем нового пользователя
+        user_data = UserData(tid=tid, owner=False)
+        new_user = User.create(db, user_data)
+        logger.info(f"Successfully registered new user with tid: {tid}")
+        
+        return new_user.to_dataclass().to_dict()
+    except Exception as e:
+        logger.error(f"Error registering user: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+@app.post("/users", response_model=dict)
+def create_user(
+    tid: int = Form(...),
+    owner: bool = Form(False),
+    db: Session = Depends(get_db_session)
+):
+    try:
+        user_data = UserData(
+            tid=tid,
+            owner=owner
+        )
+        user_item = User.create(db, user_data)
+        return user_item.to_dataclass().to_dict()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+#GET
+@app.get("/users/{user_id}", response_model=dict)
+def get_user(user_id: int, db: Session = Depends(get_db_session)):
+    try:
+        item = User.get_by_id(db, user_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="User not found")
+        return item.to_dataclass().to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.get("/users/telegram/{tid}", response_model=dict)
+def get_user_by_tid(tid: int, db: Session = Depends(get_db_session)):
+    try:
+        item = User.get_by_tid(db, tid)
+        if not item:
+            raise HTTPException(status_code=404, detail="User not found")
+        return item.to_dataclass().to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+#_________________________________________________________________________________________
+
+
+
+
+
 # @app.get("/debug/tables/{table_name}/structure")
 # async def debug_table_structure(table_name: str):
 #     """Debug endpoint to check specific table structure"""
@@ -852,3 +958,76 @@ async def view_menu(org_id: int, theme: str = 'modern-dark', request: Request = 
 #         return main_item.to_dataclass().to_dict()
 #     except Exception as e:
 #         raise HTTPException(status_code=500, detail=str(e))
+
+#______________________________________________________________________
+
+# @app.get("/users/{user_id}", response_model=dict)
+# def get_user(user_id: int, db: Session = Depends(get_db_session)):
+#     try:
+#         item = User.get_by_id(db, user_id)
+#         if not item:
+#             raise HTTPException(status_code=404, detail="User not found")
+#         return item.to_dataclass().to_dict()
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+#     finally:
+#         db.close()
+
+# @app.get("/users/telegram/{tid}", response_model=dict)
+# def get_user_by_tid(tid: int, db: Session = Depends(get_db_session)):
+#     try:
+#         item = User.get_by_tid(db, tid)
+#         if not item:
+#             raise HTTPException(status_code=404, detail="User not found")
+#         return item.to_dataclass().to_dict()
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+#     finally:
+#         db.close()
+
+# @app.post("/users", response_model=dict)
+# def create_user(
+#     tid: int = Form(...),
+#     owner: bool = Form(False),
+#     db: Session = Depends(get_db_session)
+# ):
+#     try:
+#         user_data = UserData(
+#             tid=tid,
+#             owner=owner
+#         )
+#         user_item = User.create(db, user_data)
+#         return user_item.to_dataclass().to_dict()
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+#     finally:
+#         db.close()
+
+# @app.post("/register_user")
+# async def register_user(tid: int = Query(...), db: Session = Depends(get_db_session)):
+#     """Register a new user or return existing user"""
+#     try:
+#         logger.info(f"Attempting to register user with tid: {tid}")
+        
+#         # Проверяем существование пользователя
+#         existing_user = User.get_by_tid(db, tid)
+#         if existing_user:
+#             logger.info(f"User with tid {tid} already exists")
+#             return existing_user.to_dataclass().to_dict()
+        
+#         # Создаем нового пользователя
+#         user_data = UserData(tid=tid, owner=False)
+#         new_user = User.create(db, user_data)
+#         logger.info(f"Successfully registered new user with tid: {tid}")
+        
+#         return new_user.to_dataclass().to_dict()
+#     except Exception as e:
+#         logger.error(f"Error registering user: {str(e)}")
+#         logger.error(traceback.format_exc())
+#         raise HTTPException(status_code=500, detail=str(e))
+#     finally:
+#         db.close()

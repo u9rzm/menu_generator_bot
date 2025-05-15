@@ -1,4 +1,4 @@
-from domain.db.database import Base, get_db
+from domain.db.database import Base, get_db, get_db_session
 from sqlalchemy import Column, Integer, String, Numeric, Boolean, DateTime, BigInteger, ForeignKey
 from datetime import datetime, UTC
 from dataclasses import dataclass

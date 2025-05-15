@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "webgen"
+version = "0.1.0"
+description = "Генератор HTML страниц на FastAPI и Jinja2"
+authors = ["Твоё Имя <you@example.com>"]
+packages = [{ include = "app" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.111.0"
+uvicorn = "^0.29.0"
+jinja2 = "^3.1.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

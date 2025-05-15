@@ -1,0 +1,16 @@
+# Generator HTML  
+  generator:
+    build:
+      context: ..
+      dockerfile: ./generator/Dockerfile
+    container_name: gen-app
+    environment:
+      API_PORT: ${API_PORT}
+    volumes:
+      - ../generator:/app
+      - ../static:/static
+    expose:
+      - "${API_PORT}"
+    depends_on:
+    networks:
+      - webnet

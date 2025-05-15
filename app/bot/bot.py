@@ -11,11 +11,15 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
 import traceback
+
+from pydantic import BaseModel
+
+
 # from front import get_main_buttons, get_help_buttons, get_organization_buttons, get_theme_buttons, get_back_to_org_buttons, log_user_info
 
 API_URL = os.getenv("API_URL")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
+GEN_URL ='http://genhtm:2424'
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -224,10 +228,7 @@ async def process_org_menu(message: Message, state: FSMContext):
             form_data.add_field('description', org_description)
             form_data.add_field('owner_id', str(user['id'])) 
             print(form_data) # Используем ID из таблицы users
-
-
             async with session.post(f"{API_URL}/organizations", data=form_data) as resp:
-
                 if resp.status != 200:
                     raise Exception(f"Failed to create organization: {await resp.text()}")
                 org = await resp.json()
@@ -244,7 +245,8 @@ async def process_org_menu(message: Message, state: FSMContext):
         os.remove(file_path)
 
         await message.answer(
-            f"✅ Организация '{org_name}' успешно создана!\n\n"
+            f"✅ Организация '{org_name}' успешно создана!\n\n",
+            reply_markup=get_main_buttons()
 
         )
     except Exception as e:
@@ -254,7 +256,6 @@ async def process_org_menu(message: Message, state: FSMContext):
         )
     finally:
         await state.clear()
-
 
 @dp.callback_query(lambda c: c.data == "help")
 async def help_callback(callback_query: types.CallbackQuery):
@@ -271,7 +272,6 @@ async def back_to_main_callback(callback_query: types.CallbackQuery):
     )
     await callback_query.answer()
 
-
 #Help menu 
 @dp.message(Command("help"))
 async def cmd_help(message: Message):
@@ -287,8 +287,6 @@ async def cmd_help(message: Message):
     )
     
     await message.answer(help_text)
-
-
 
 async def show_organization_menu(message: Message, org_id: int):
     """Показывает меню организации"""
@@ -415,6 +413,8 @@ async def organization_actions_callback(callback_query: types.CallbackQuery):
             reply_markup=get_main_buttons()
         )
     await callback_query.answer()
+
+
 # Generate Menu Page
 @dp.callback_query(lambda c: c.data.startswith("generate_web_"))
 async def generate_web_callback(callback_query: types.CallbackQuery):
@@ -426,19 +426,55 @@ async def generate_web_callback(callback_query: types.CallbackQuery):
     )
     await callback_query.answer()
 
+
+
+
 @dp.callback_query(lambda c: c.data.startswith("theme_"))
 async def theme_selected_callback(callback_query: types.CallbackQuery):
     """Обработчик выбора темы"""
-    data = callback_query.data.split('_')
+    data = callback_query.data.split('_')    
+    theme= data[-1]
     org_id = int(data[-2])
-    theme = data[-1]
-    
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{API_URL}/organizations/{org_id}/menu/generate",
-                json={"theme": theme}
-            ) as resp:
+            # Получаем информацию об организации
+            async with session.get(f"{API_URL}/organizations/{org_id}") as resp:
+                if resp.status != 200:
+                    raise Exception(f"Failed to get organization: {await resp.text()}")
+                org = await resp.json()
+        async with aiohttp.ClientSession() as session:
+            # Получаем информацию о меню
+            async with session.get(f"{API_URL}/organizations/{org_id}/menu") as resp:
+                if resp.status != 200:
+                    raise Exception(f"Failed to get organization: {await resp.text()}")
+                menu_items = await resp.json()
+
+        content = {}
+        for item in menu_items:            
+            if item['category'] not in content:
+                content[item['category']] = []
+            entity = {'name': item['name'],
+                      'price': item['price'],
+                      'description': item['description'],
+                      'subcategory': item['subcategory']}
+            content[item['category']].append(entity)
+        
+        # print(org)
+        data = {'page_name': org['menu_table_name'],
+                'title': org['name'],
+                'description': org['description'],
+                'theme': theme,
+                'content': content
+                   }
+        print(data)
+ 
+    except Exception as e:
+        logger.error(f"Error in organization actions: {str(e)}")
+    try:
+        #Menu Generation
+        async with aiohttp.ClientSession() as session:
+            # Получаем информацию об организации
+            async with session.post(f"{GEN_URL}/generate", json=data) as resp:
                 if resp.status == 200:
                     result = await resp.json()
                     menu_url = result.get('url')
@@ -461,7 +497,7 @@ async def theme_selected_callback(callback_query: types.CallbackQuery):
             reply_markup=get_back_to_org_buttons(org_id)
         )
     await callback_query.answer()
-#__________________________________________________________________________________________
+#____________________________________________________________________________________________________________
 if __name__ == "__main__":
     import asyncio
     asyncio.run(dp.start_polling(bot))

@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Request, Query
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from decimal import Decimal
@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from domain.db.database import get_db, init_db, get_db_session
-from domain.db.models import Menu, MenuData, Main, MainData, Organization, OrganizationData, MenuItem, User, UserData
+from domain.db.models import Menu, MenuData, Organization, OrganizationData, MenuItem, User, UserData
 from domain.entity.tables import get_table_info , get_table_structure, get_table_data
 
 # from routes.users import router as router_users
@@ -472,8 +472,8 @@ def get_organization_menu(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
+    # finally:
+    #     db.close()
 
 @app.get("/organizations/{org_id}/menu/categories")
 def get_organization_menu_categories(
@@ -500,8 +500,8 @@ def get_organization_menu_categories(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
+    # finally:
+    #     db.close()
 
 
 
@@ -510,29 +510,7 @@ def get_organization_menu_categories(
 async def root():
     return {"message": "Menu Generator API"}
 
-@app.post('/api/organizations/{org_id}/menu/generate')
-async def generate_menu(org_id: int, request: ThemeRequest, db: Session = Depends(get_db)):
-    """Генерирует страницу меню для организации"""
-    try:
-        if check_menu_page_exists(org_id, request.theme):
-            url = get_menu_page_url(org_id, request.theme)
-            return {
-                'message': 'Страница уже существует',
-                'url': url
-            }
 
-        generate_menu_page(org_id, request.theme, db)
-        url = get_menu_page_url(org_id, request.theme)
-
-        return {
-            'message': 'Страница успешно сгенерирована',
-            'url': url
-        }
-
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail='Внутренняя ошибка сервера')
 
 @app.get('/api/themes')
 async def get_themes():
@@ -570,14 +548,6 @@ async def get_organization(org_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Организация не найдена")
     return org
 
-@app.get("/api/organizations/{org_id}/menu")
-async def get_organization_menu(org_id: int, db: Session = Depends(get_db)):
-    """Получает меню организации"""
-    menu_items = db.query(MenuItem).filter(
-        MenuItem.organization_id == org_id,
-        MenuItem.is_available == True
-    ).all()
-    return menu_items
 
 @app.post("/api/organizations")
 async def create_organization(name: str, description: str, owner_id: int, db: Session = Depends(get_db)):
@@ -611,36 +581,7 @@ async def add_menu_item(
     db.refresh(menu_item)
     return menu_item
 
-# Эндпоинты для отображения страниц
-@app.get("/menu/{org_id}", response_class=HTMLResponse)
-async def view_menu(org_id: int, theme: str = 'modern-dark', request: Request = None, db: Session = Depends(get_db)):
-    """Отображает страницу меню"""
-    try:
-        # Проверяем существование страницы
-        if not check_menu_page_exists(org_id, theme):
-            # Если страница не существует, генерируем её
-            generate_menu_page(org_id, theme, db)
-        
-        # Читаем сгенерированную страницу
-        filename = f"menu_{org_id}_{theme}.html"
-        filepath = os.path.join(PAGES_DIR, filename)
-        
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        return content
 
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail='Внутренняя ошибка сервера')
-
-
-
-
-
-class ThemeRequest(BaseModel):
-    theme: str = 'modern-dark'
 
 
 #GET
@@ -679,16 +620,6 @@ async def get_organization(org_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Организация не найдена")
     return org
 
-@app.get("/organizations/{org_id}/menu")
-async def get_organization_menu(org_id: int, db: Session = Depends(get_db)):
-    print(
-    """Получает меню организации"""
-    )
-    menu_items = db.query(MenuItem).filter(
-        MenuItem.organization_id == org_id,
-        MenuItem.is_available == True
-    ).all()
-    return menu_items
 #POST
 
 
@@ -736,60 +667,49 @@ def get_menu_page_url(org_id: int, theme: str) -> str:
     return f"{BASE_URL}/static/pages/{filename}"
 
 
-
-def generate_menu_page(org_id: int, theme: str, db: Session):
-    print(f"Генерируем HTML страницу меню для организации\n " )
-    if theme not in THEMES:
-        raise HTTPException(status_code=400, detail=f"Неизвестная тема: {theme}")
-    org = db.query(Organization).filter(Organization.id == org_id).first()
-    if not org:
-        raise HTTPException(status_code=404, detail=f"Организация не найдена: {org_id}")
-
-    menu_items = db.query(MenuItem).filter(
-        MenuItem.organization_id == org_id,
-        MenuItem.is_available == True
-    ).all()
-
-    categories = {}
-    for item in menu_items:
-        if item.category not in categories:
-            categories[item.category] = []
-        categories[item.category].append(item)
-
-    menu_url = f"{BASE_URL}/menu/{org_id}"
-
-    template = templates.env.get_template("menu.html")
-    html_content = template.render(
-        organization=org,
-        categories=categories,
-        menu_url=menu_url,
-        theme=theme
-    )
-    print('sdfsdfsdfsdf')
-    filename = f"menu_{org_id}_{theme}.html"
-    filepath = os.path.join(PAGES_DIR, filename)
-
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(html_content)
-
-    return filename
+class ThemeRequest(BaseModel):
+    theme: str = 'modern-dark',
 
 
-@app.post('/organizations/{org_id}/menu/generate')
-async def generate_menu(org_id: int, request: ThemeRequest, db: Session = Depends(get_db)):
-    print(f'Generating: {org_id}')
+@app.post('/organizations/{org_id}/menu/generate/{theme}')
+async def generate_menu(org_id: int, theme: str, db: Session = Depends(get_db_session)):
+# async def generate_menu(org_id: int , request: ThemeRequest):
     """Генерирует страницу меню для организации"""
-
+    print(f'Type of base entry \n{type(db)}')
     try:
-        if check_menu_page_exists(org_id, request.theme):
-            url = get_menu_page_url(org_id, request.theme)
+        if check_menu_page_exists(org_id, theme):
+            url = get_menu_page_url(org_id, theme)
             return {
                 'message': 'Страница уже существует',
                 'url': url
             }
+        if theme not in THEMES:
+            raise HTTPException(status_code=400, detail=f"Неизвестная тема: {theme}")
+        
+       
+        org = get_organization_menu(db, org_id) 
+        print(f'MENU READED_____________ \n{org}')
+        menu_url = f"{BASE_URL}/menu/{org_id}"
 
-        generate_menu_page(org_id, request.theme, db)
-        url = get_menu_page_url(org_id, request.theme)
+        template = templates.env.get_template("menu.html")
+
+        # html_content = template.render(
+        #     organization=org,
+        #     categories=categories,
+        #     menu_url=menu_url,
+        #     theme=theme
+        # )
+
+        # filename = f"menu_{org_id}_{theme}.html"
+        # filepath = os.path.join(PAGES_DIR, filename)
+        # try:
+        #     with open(filepath, 'w', encoding='utf-8') as f:
+        #         f.write(html_content)  
+        # except HTTPException as e:
+        #     raise e (detail=f'Ошибка Создания страницы {e}')
+        # return filename
+        # generate_menu_page(org_id, request.theme, db)
+        url = get_menu_page_url(org_id, theme)
 
         return {
             'message': 'Страница успешно сгенерирована',

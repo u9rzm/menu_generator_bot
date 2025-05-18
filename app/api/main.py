@@ -782,10 +782,10 @@ def get_user(user_id: int, db: Session = Depends(get_db_session)):
 @app.get("/users/telegram/{tid}", response_model=dict)
 def get_user_by_tid(tid: int, db: Session = Depends(get_db_session)):
     try:
-        item = User.get_by_tid(db, tid)
-        if not item:
+        user = User.get_by_tid(db, tid)
+        if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        return item.to_dataclass().to_dict()
+        return user.to_dataclass().to_dict()
     except HTTPException:
         raise
     except Exception as e:
@@ -794,160 +794,112 @@ def get_user_by_tid(tid: int, db: Session = Depends(get_db_session)):
         db.close()
 #_________________________________________________________________________________________
 
+# Image handling endpoints
+@app.post("/organizations/{org_id}/images")
+async def upload_images(
+    org_id: int,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db_session)
+):
+    try:
+        # Check if organization exists
+        org = db.query(Organization).filter(Organization.id == org_id).first()
+        if not org:
+            raise HTTPException(status_code=404, detail="Organization not found")
 
+        # Create images directory if it doesn't exist
+        upload_dir = os.path.join(STATIC_DIR, "images", str(org_id))
+        os.makedirs(upload_dir, exist_ok=True)
 
+        results = []
+        for file in files:
+            # Generate unique filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            ext = os.path.splitext(file.filename)[1]
+            stored_filename = f"{timestamp}_{len(results)}{ext}"
+            file_path = os.path.join(upload_dir, stored_filename)
 
+            # Save file
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
 
-# @app.get("/debug/tables/{table_name}/structure")
-# async def debug_table_structure(table_name: str):
-#     """Debug endpoint to check specific table structure"""
-#     try:
-#         logger.info(f"Starting debug_table_structure endpoint for {table_name}")
-#         db = get_db_session()
-#         try:
-#             return get_table_structure(db, table_name)
-#         finally:
-#             db.close()
-#     except Exception as e:
-#         logger.error(f"Error in debug_table_structure: {str(e)}")
-#         logger.error(traceback.format_exc())
-#         raise HTTPException(status_code=500, detail=str(e))
+            # Save metadata to database
+            query = text("""
+                INSERT INTO images (organization_id, original_filename, stored_filename)
+                VALUES (:org_id, :original_filename, :stored_filename)
+                RETURNING id
+            """)
+            result = db.execute(
+                query,
+                {
+                    "org_id": org_id,
+                    "original_filename": file.filename,
+                    "stored_filename": stored_filename
+                }
+            )
+            image_id = result.scalar()
+            
+            results.append({
+                "id": image_id,
+                "original_filename": file.filename,
+                "stored_filename": stored_filename
+            })
 
-# @app.get("/debug/tables/{table_name}/data")
-# async def debug_table_data(table_name: str, limit: int = 5):
-#     """Debug endpoint to check specific table data"""
-#     try:
-#         logger.info(f"Starting debug_table_data endpoint for {table_name}")
-#         db = get_db_session()
-#         try:
-#             return get_table_data(db, table_name, limit)
-#         finally:
-#             db.close()
-#     except Exception as e:
-#         logger.error(f"Error in debug_table_data: {str(e)}")
-#         logger.error(traceback.format_exc())
-#         raise HTTPException(status_code=500, detail=str(e))
+        db.commit()
+        return {"uploaded_images": results}
 
-# # Main table endpoints
-# @app.get("/main", response_model=List[dict])
-# def get_main_items(
-#     skip: int = 0,
-#     limit: int = 100,
-#     owner: Optional[str] = None,
-#     db: Session = Depends(get_db_session)
-# ):
-#     try:
-#         if owner:
-#             items = Main.get_by_owner(db, owner)
-#         else:
-#             items = Main.get_all(db, skip, limit)
-#         return [item.to_dataclass().to_dict() for item in items]
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-#     finally:
-#         db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading images: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
-# @app.get("/main/{main_id}", response_model=dict)
-# def get_main_item(main_id: int, db: Session = Depends(get_db_session)):
-#     try:
-#         item = Main.get_by_id(db, main_id)
-#         if not item:
-#             raise HTTPException(status_code=404, detail="Main item not found")
-#         return item.to_dataclass().to_dict()
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-#     finally:
-#         db.close()
+@app.get("/organizations/{org_id}/images")
+async def get_organization_images(
+    org_id: int,
+    db: Session = Depends(get_db_session)
+):
+    try:
+        query = text("""
+            SELECT id, original_filename, stored_filename, created, updated
+            FROM images
+            WHERE organization_id = :org_id
+            ORDER BY created DESC
+        """)
+        result = db.execute(query, {"org_id": org_id})
+        images = [dict(row) for row in result]
+        return {"images": images}
+    except Exception as e:
+        logger.error(f"Error getting images: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
-# @app.post("/main", response_model=dict)
-# def create_main_item(
-#     name: str = Form(...),
-#     owner: str = Form(...),
-#     name_menu_table: str = Form(...),
-#     db: Session = Depends(get_db)
-# ):
-#     try:
-#         main_data = MainData(
-#             name=name,
-#             owner=owner,
-#             name_menu_table=name_menu_table
-#         )
-#         main_item = Main.create(db, main_data)
-#         return main_item.to_dataclass().to_dict()
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-
-#______________________________________________________________________
-
-# @app.get("/users/{user_id}", response_model=dict)
-# def get_user(user_id: int, db: Session = Depends(get_db_session)):
-#     try:
-#         item = User.get_by_id(db, user_id)
-#         if not item:
-#             raise HTTPException(status_code=404, detail="User not found")
-#         return item.to_dataclass().to_dict()
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-#     finally:
-#         db.close()
-
-# @app.get("/users/telegram/{tid}", response_model=dict)
-# def get_user_by_tid(tid: int, db: Session = Depends(get_db_session)):
-#     try:
-#         item = User.get_by_tid(db, tid)
-#         if not item:
-#             raise HTTPException(status_code=404, detail="User not found")
-#         return item.to_dataclass().to_dict()
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-#     finally:
-#         db.close()
-
-# @app.post("/users", response_model=dict)
-# def create_user(
-#     tid: int = Form(...),
-#     owner: bool = Form(False),
-#     db: Session = Depends(get_db_session)
-# ):
-#     try:
-#         user_data = UserData(
-#             tid=tid,
-#             owner=owner
-#         )
-#         user_item = User.create(db, user_data)
-#         return user_item.to_dataclass().to_dict()
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-#     finally:
-#         db.close()
-
-# @app.post("/register_user")
-# async def register_user(tid: int = Query(...), db: Session = Depends(get_db_session)):
-#     """Register a new user or return existing user"""
-#     try:
-#         logger.info(f"Attempting to register user with tid: {tid}")
-        
-#         # Проверяем существование пользователя
-#         existing_user = User.get_by_tid(db, tid)
-#         if existing_user:
-#             logger.info(f"User with tid {tid} already exists")
-#             return existing_user.to_dataclass().to_dict()
-        
-#         # Создаем нового пользователя
-#         user_data = UserData(tid=tid, owner=False)
-#         new_user = User.create(db, user_data)
-#         logger.info(f"Successfully registered new user with tid: {tid}")
-        
-#         return new_user.to_dataclass().to_dict()
-#     except Exception as e:
-#         logger.error(f"Error registering user: {str(e)}")
-#         logger.error(traceback.format_exc())
-#         raise HTTPException(status_code=500, detail=str(e))
-#     finally:
-#         db.close()
+@app.get("/images/{image_id}")
+async def get_image(
+    image_id: int,
+    db: Session = Depends(get_db_session)
+):
+    try:
+        query = text("""
+            SELECT id, organization_id, original_filename, stored_filename, created, updated
+            FROM images
+            WHERE id = :image_id
+        """)
+        result = db.execute(query, {"image_id": image_id})
+        image = result.fetchone()
+        if not image:
+            raise HTTPException(status_code=404, detail="Image not found")
+        return dict(image)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting image: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()

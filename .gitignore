@@ -10,3 +10,4 @@ __pycache__/
 poetry.lock
 .git/
 temp*
+static/*

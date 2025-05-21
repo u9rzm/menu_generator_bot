@@ -13,10 +13,12 @@ from sqlalchemy.sql import text
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+import json
+import aiohttp
 
 from domain.db.database import get_db, init_db, get_db_session
-from domain.db.models import Menu, MenuData, Organization, OrganizationData, MenuItem, User, UserData
-from domain.entity.tables import get_table_info , get_table_structure, get_table_data
+from domain.db.models import Menu, MenuData, Organization, OrganizationData, MenuItem, User, UserData, Image, ImageData
+from domain.entity.tables import get_table_info, get_table_structure, get_table_data
 
 # from routes.users import router as router_users
 
@@ -40,14 +42,26 @@ app = FastAPI(title="Menu API", lifespan=lifespan)
 
 # app.include_router(router_users)
 
-# Конфигурация
+# Константы
 BASE_URL = "http://api:2424"
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 PAGES_DIR = os.path.join(STATIC_DIR, "pages")
+IMAGE_DATA_DIR = os.path.join(STATIC_DIR, "image_data")
 
 # Создаем директории если их нет
+logger.info(f"Creating static directories:")
+logger.info(f"STATIC_DIR: {STATIC_DIR}")
+logger.info(f"PAGES_DIR: {PAGES_DIR}")
+logger.info(f"IMAGE_DATA_DIR: {IMAGE_DATA_DIR}")
+
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(PAGES_DIR, exist_ok=True)
+os.makedirs(IMAGE_DATA_DIR, exist_ok=True)
+
+# Проверяем права доступа к директориям
+for directory in [STATIC_DIR, PAGES_DIR, IMAGE_DATA_DIR]:
+    if os.path.exists(directory):
+        logger.info(f"Directory {directory} exists and has permissions: {oct(os.stat(directory).st_mode)[-3:]}")
 
 # Монтируем статические файлы
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -55,25 +69,23 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 # Настраиваем шаблоны
 templates = Jinja2Templates(directory="templates")
 
-
-
 # Модели данных
 class ThemeRequest(BaseModel):
     theme: str = 'modern-dark'
 
-# Константы
+class ImageUploadRequest(BaseModel):
+    image_name: str
+    stored_name: str
+
+# Константы для тем
 THEMES = {
-    'modern-dark': 'Современный темный',
-    'light-elegant': 'Светлый элегантный',
-    'minimal': 'Минималистичный',
-    'vintage': 'Винтажный',
-    'futuristic': 'Футуристический',
-    'nature': 'Природный'
+    'light': 'Светлая',
+    'dark': 'Темная',
+    'pastel-light-1': 'Светлая пастель 1',
+    'pastel-light-2': 'Светлая пастель 2',
+    'pastel-dark-1': 'Темная пастель 1',
+    'pastel-dark-2': 'Темная пастель 2'
 }
-
-#templates
-templates = Jinja2Templates(directory="templates")
-
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
@@ -165,20 +177,9 @@ def create_menu_item(
     description: Optional[str] = Form(None),
     subcategory: Optional[str] = Form(None),
     is_available: bool = Form(True),
-    image: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db_session)
 ):
     try:
-        # Обработка изображения, если оно есть
-        image_url = None
-        if image:
-            upload_dir = os.getenv("UPLOAD_DIR", "/files")
-            os.makedirs(upload_dir, exist_ok=True)
-            file_path = os.path.join(upload_dir, image.filename)
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(image.file, buffer)
-            image_url = f"/files/{image.filename}"
-
         # Создание объекта меню
         menu_data = MenuData(
             name=name,
@@ -187,7 +188,7 @@ def create_menu_item(
             description=description,
             subcategory=subcategory,
             is_available=is_available,
-            image_url=image_url
+            image_url=None  # Изображения будут добавляться отдельно
         )
 
         # Сохранение в базу данных
@@ -284,8 +285,10 @@ def create_organization(
 ):
     """Create new organization"""
     try:
-        # Генерируем имя таблицы меню
-        menu_table_name = f"menu_{name.lower().replace(' ', '_')}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        # Генерируем имя таблицы меню, удаляя все недопустимые символы
+        # Оставляем только буквы, цифры и подчеркивания
+        sanitized_name = ''.join(c for c in name.lower() if c.isalnum() or c == '_')
+        menu_table_name = f"menu_{sanitized_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         
         # Создаем таблицу меню
         create_menu_table_sql = f"""
@@ -297,7 +300,7 @@ def create_organization(
             category TEXT NOT NULL,
             subcategory TEXT,
             is_available BOOLEAN DEFAULT TRUE,
-            image_url TEXT,
+            image_name TEXT,
             created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -379,30 +382,32 @@ async def upload_menu(
                 reader = csv.DictReader(f)
                 for row in reader:
                     insert_sql = f"""
-                    INSERT INTO {org.menu_table_name} (name, price, category, description, subcategory)
-                    VALUES (:name, :price, :category, :description, :subcategory)
+                    INSERT INTO {org.menu_table_name} (name, price, category, description, subcategory, image_name)
+                    VALUES (:name, :price, :category, :description, :subcategory, :image_name)
                     """
                     db.execute(text(insert_sql), {
                         'name': row['name'],
                         'price': Decimal(row['price']),
                         'category': row['category'],
                         'description': row.get('description'),
-                        'subcategory': row.get('subcategory')
+                        'subcategory': row.get('subcategory'),
+                        'image_name': row.get('image_name')  # Добавляем имя изображения
                     })
         elif file.filename.endswith(('.xls', '.xlsx')):
             import pandas as pd
             df = pd.read_excel(file_path)
             for _, row in df.iterrows():
                 insert_sql = f"""
-                INSERT INTO {org.menu_table_name} (name, price, category, description, subcategory)
-                VALUES (:name, :price, :category, :description, :subcategory)
+                INSERT INTO {org.menu_table_name} (name, price, category, description, subcategory, image_name)
+                VALUES (:name, :price, :category, :description, :subcategory, :image_name)
                 """
                 db.execute(text(insert_sql), {
                     'name': row['name'],
                     'price': Decimal(str(row['price'])),
                     'category': row['category'],
                     'description': row.get('description'),
-                    'subcategory': row.get('subcategory')
+                    'subcategory': row.get('subcategory'),
+                    'image_name': row.get('image_name')  # Добавляем имя изображения
                 })
         else:
             raise HTTPException(status_code=400, detail="Unsupported file format")
@@ -462,7 +467,7 @@ def get_organization_menu(
                 "category": row.category,
                 "subcategory": row.subcategory,
                 "is_available": row.is_available,
-                "image_url": row.image_url,
+                "image_name": row.image_name,  # Добавляем имя изображения в ответ
                 "created": row.created.isoformat() if row.created else None,
                 "updated": row.updated.isoformat() if row.updated else None
             })
@@ -515,6 +520,13 @@ async def root():
 @app.get('/api/themes')
 async def get_themes():
     """Возвращает список доступных тем"""
+    return {
+        'themes': THEMES
+    }
+
+@app.get('/themes')
+async def get_themes_alt():
+    """Возвращает список доступных тем (альтернативный эндпоинт)"""
     return {
         'themes': THEMES
     }
@@ -798,60 +810,35 @@ def get_user_by_tid(tid: int, db: Session = Depends(get_db_session)):
 @app.post("/organizations/{org_id}/images")
 async def upload_images(
     org_id: int,
-    files: List[UploadFile] = File(...),
+    request: ImageUploadRequest,
     db: Session = Depends(get_db_session)
 ):
     try:
         # Check if organization exists
-        org = db.query(Organization).filter(Organization.id == org_id).first()
+        org = Organization.get_by_id(db, org_id)
         if not org:
             raise HTTPException(status_code=404, detail="Organization not found")
 
-        # Create images directory if it doesn't exist
-        upload_dir = os.path.join(STATIC_DIR, "images", str(org_id))
-        os.makedirs(upload_dir, exist_ok=True)
+        # Create organization's image directory if it doesn't exist
+        org_image_dir = os.path.join(IMAGE_DATA_DIR, str(org_id))
+        logger.info(f"Creating image directory at: {org_image_dir}")
+        os.makedirs(org_image_dir, exist_ok=True)
 
-        results = []
-        for file in files:
-            # Generate unique filename
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            ext = os.path.splitext(file.filename)[1]
-            stored_filename = f"{timestamp}_{len(results)}{ext}"
-            file_path = os.path.join(upload_dir, stored_filename)
-
-            # Save file
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-
-            # Save metadata to database
-            query = text("""
-                INSERT INTO images (organization_id, original_filename, stored_filename)
-                VALUES (:org_id, :original_filename, :stored_filename)
-                RETURNING id
-            """)
-            result = db.execute(
-                query,
-                {
-                    "org_id": org_id,
-                    "original_filename": file.filename,
-                    "stored_filename": stored_filename
-                }
-            )
-            image_id = result.scalar()
-            
-            results.append({
-                "id": image_id,
-                "original_filename": file.filename,
-                "stored_filename": stored_filename
-            })
-
-        db.commit()
-        return {"uploaded_images": results}
+        # Save metadata to database using Image model
+        image_data = ImageData(
+            organization_id=org_id,
+            original_filename=request.image_name,
+            stored_filename=request.stored_name
+        )
+        image = Image.create(db, image_data)
+        logger.info(f"Successfully saved image metadata to database: {image.to_dataclass().to_dict()}")
+        
+        return {"uploaded_image": image.to_dataclass().to_dict()}
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error uploading images: {str(e)}")
+        logger.error(f"Error registering image: {str(e)}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -863,15 +850,22 @@ async def get_organization_images(
     db: Session = Depends(get_db_session)
 ):
     try:
-        query = text("""
-            SELECT id, original_filename, stored_filename, created, updated
-            FROM images
-            WHERE organization_id = :org_id
-            ORDER BY created DESC
-        """)
-        result = db.execute(query, {"org_id": org_id})
-        images = [dict(row) for row in result]
-        return {"images": images}
+        # Check if organization exists
+        org = Organization.get_by_id(db, org_id)
+        if not org:
+            raise HTTPException(status_code=404, detail="Organization not found")
+
+        # Get images using Image model
+        images = Image.get_by_organization(db, org_id)
+        
+        # Add full URL to each image
+        result = []
+        for image in images:
+            image_data = image.to_dataclass().to_dict()
+            image_data['url'] = f"/static/image_data/{org_id}/{image.stored_filename}"
+            result.append(image_data)
+            
+        return {"images": result}
     except Exception as e:
         logger.error(f"Error getting images: {str(e)}")
         logger.error(traceback.format_exc())
@@ -885,16 +879,10 @@ async def get_image(
     db: Session = Depends(get_db_session)
 ):
     try:
-        query = text("""
-            SELECT id, organization_id, original_filename, stored_filename, created, updated
-            FROM images
-            WHERE id = :image_id
-        """)
-        result = db.execute(query, {"image_id": image_id})
-        image = result.fetchone()
+        image = Image.get_by_id(db, image_id)
         if not image:
             raise HTTPException(status_code=404, detail="Image not found")
-        return dict(image)
+        return image.to_dataclass().to_dict()
     except HTTPException:
         raise
     except Exception as e:

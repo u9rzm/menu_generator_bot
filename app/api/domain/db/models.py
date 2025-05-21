@@ -1,4 +1,4 @@
-from domain.db.database import Base, get_db, get_db_session
+from domain.db.base import Base
 from sqlalchemy import Column, Integer, String, Numeric, Boolean, DateTime, BigInteger, ForeignKey
 from datetime import datetime, UTC
 from dataclasses import dataclass
@@ -625,4 +625,99 @@ class MenuItem(Base):
         except SQLAlchemyError as e:
             db.rollback()
             raise e
+
+@dataclass
+class ImageTable:
+    """Dataclass for defining images table structure"""
+    __tablename__: str = "images"
+    
+    id: Column = Column(Integer, primary_key=True, index=True)
+    organization_id: Column = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    original_filename: Column = Column(String, nullable=False)
+    stored_filename: Column = Column(String, nullable=False)
+    created: Column = Column(DateTime, default=lambda: datetime.now(UTC))
+    updated: Column = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+@dataclass
+class ImageData:
+    """Dataclass for image data operations"""
+    organization_id: int
+    original_filename: str
+    stored_filename: str
+    id: Optional[int] = None
+    created: Optional[datetime] = None
+    updated: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "organization_id": self.organization_id,
+            "original_filename": self.original_filename,
+            "stored_filename": self.stored_filename,
+            "created": self.created.isoformat() if self.created else None,
+            "updated": self.updated.isoformat() if self.updated else None
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ImageData':
+        return cls(
+            id=data.get('id'),
+            organization_id=data['organization_id'],
+            original_filename=data['original_filename'],
+            stored_filename=data['stored_filename'],
+            created=datetime.fromisoformat(data['created']) if data.get('created') else None,
+            updated=datetime.fromisoformat(data['updated']) if data.get('updated') else None
+        )
+
+class Image(Base):
+    """SQLAlchemy model for images table"""
+    __tablename__ = ImageTable.__tablename__
+
+    id = ImageTable.id
+    organization_id = ImageTable.organization_id
+    original_filename = ImageTable.original_filename
+    stored_filename = ImageTable.stored_filename
+    created = ImageTable.created
+    updated = ImageTable.updated
+
+    def to_dataclass(self) -> ImageData:
+        return ImageData(
+            id=self.id,
+            organization_id=self.organization_id,
+            original_filename=self.original_filename,
+            stored_filename=self.stored_filename,
+            created=self.created,
+            updated=self.updated
+        )
+
+    @classmethod
+    def from_dataclass(cls, data: ImageData) -> 'Image':
+        return cls(
+            organization_id=data.organization_id,
+            original_filename=data.original_filename,
+            stored_filename=data.stored_filename
+        )
+
+    @classmethod
+    def create(cls, db: Session, image_data: ImageData) -> 'Image':
+        """Create new image record"""
+        try:
+            image = cls.from_dataclass(image_data)
+            db.add(image)
+            db.commit()
+            db.refresh(image)
+            return image
+        except SQLAlchemyError as e:
+            db.rollback()
+            raise e
+
+    @classmethod
+    def get_by_id(cls, db: Session, image_id: int) -> Optional['Image']:
+        """Get image by ID"""
+        return db.query(cls).filter(cls.id == image_id).first()
+
+    @classmethod
+    def get_by_organization(cls, db: Session, organization_id: int) -> List['Image']:
+        """Get all images for an organization"""
+        return db.query(cls).filter(cls.organization_id == organization_id).all()
 

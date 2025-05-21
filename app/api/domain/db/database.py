@@ -1,5 +1,4 @@
 from sqlalchemy import MetaData, create_engine, text
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError, OperationalError
 from contextlib import contextmanager
@@ -8,6 +7,9 @@ import time
 import logging
 import traceback
 from typing import Generator
+
+# Import Base from base.py
+from domain.db.base import Base
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -64,8 +66,7 @@ SessionLocal = sessionmaker(
     bind=engine
 )
 
-# Create base class for models
-Base = declarative_base()
+# Create metadata
 metadata = MetaData()
 
 def init_db() -> None:

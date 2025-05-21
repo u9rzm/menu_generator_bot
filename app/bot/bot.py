@@ -12,9 +12,15 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
 import traceback
-
+from datetime import datetime
+import json
+import os
 API_URL = os.getenv("API_URL")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+NGINX_URL = os.getenv("NGINX_URL")
+IMAGES_URL = os.getenv("IMAGES_URL")
+BACKGROUNDS_URL = os.getenv("BACKGROUNDS_URL")
+print(f'fon {BACKGROUNDS_URL}')
 GEN_URL ='http://genhtm:2424'
 # Настройка логирования
 logging.basicConfig(
@@ -22,6 +28,29 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Загрузка тематического маппинга при запуске
+THEME_MAPPING = {}
+async def load_theme_mapping():
+    """Загружает маппинг тем при запуске бота"""
+    global THEME_MAPPING
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{NGINX_URL}/static/themes/theme_mapping.json") as resp:
+                if resp.status == 200:
+                    THEME_MAPPING = await resp.json()
+                    logger.info(f"Successfully loaded theme mapping: {THEME_MAPPING}")
+                else:
+                    raise Exception(f"Failed to load themes: {await resp.text()}")
+    except Exception as e:
+        logger.error(f"Error loading theme mapping: {str(e)}")
+        print(THEME_MAPPING)
+        # Устанавливаем базовые темы в случае ошибки
+        THEME_MAPPING = {
+            'light': 'Светлая',
+            'dark': 'Темная'
+        }
+
 #Bot autorization
 bot = Bot(
     token=BOT_TOKEN,
@@ -36,9 +65,10 @@ class OrganizationStates(StatesGroup):
     waiting_for_menu = State()
     waiting_for_description_images = State()
     waiting_for_images = State()
+    waiting_for_background = State()  # Новое состояние для фоновых изображений
 
 # Временное хранилище для альбомов
-SAVE_FOLDER = "static/images"
+SAVE_FOLDER = "/static/image_data"
 os.makedirs(SAVE_FOLDER, exist_ok=True)
 # media_groups = #defaultdict(list)
 
@@ -67,20 +97,39 @@ def get_help_buttons() -> InlineKeyboardMarkup:
     )
     return keyboard
 #Theme menu
-def get_theme_buttons(org_id: int) -> InlineKeyboardMarkup:
+async def get_theme_buttons(org_id: int) -> InlineKeyboardMarkup:
     """Создает инлайн кнопки для выбора темы"""
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Современный темный", callback_data=f"theme_{org_id}_modern-dark")],
-            [InlineKeyboardButton(text="Светлый элегантный", callback_data=f"theme_{org_id}_light-elegant")],
-            [InlineKeyboardButton(text="Минималистичный", callback_data=f"theme_{org_id}_minimal")],
-            [InlineKeyboardButton(text="Винтажный", callback_data=f"theme_{org_id}_vintage")],
-            [InlineKeyboardButton(text="Футуристический", callback_data=f"theme_{org_id}_futuristic")],
-            [InlineKeyboardButton(text="Природный", callback_data=f"theme_{org_id}_nature")],
-            [InlineKeyboardButton(text="◀️ Назад", callback_data=f"org_actions_{org_id}")]
-        ]
-    )
-    return keyboard
+    try:
+        # Создаем кнопки для каждой темы из загруженного маппинга
+        keyboard_buttons = []
+        for theme_file, theme_name in THEME_MAPPING.items():
+            theme_id = theme_file.replace('.css', '')  # Убираем расширение .css
+            keyboard_buttons.append([
+                InlineKeyboardButton(
+                    text=theme_name,
+                    callback_data=f"theme_{org_id}_{theme_id}"
+                )
+            ])
+        
+        # Добавляем кнопку "Назад"
+        keyboard_buttons.append([
+            InlineKeyboardButton(
+                text="◀️ Назад",
+                callback_data=f"org_actions_{org_id}"
+            )
+        ])
+        
+        return InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    except Exception as e:
+        logger.error(f"Error creating theme buttons: {str(e)}")
+        # В случае ошибки возвращаем базовые темы
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="Светлая", callback_data=f"theme_{org_id}_light")],
+                [InlineKeyboardButton(text="Тёмная", callback_data=f"theme_{org_id}_dark")],
+                [InlineKeyboardButton(text="◀️ Назад", callback_data=f"org_actions_{org_id}")]
+            ]
+        )
 #Back menu
 def get_action_before_create_buttons(org_id: int) -> InlineKeyboardMarkup:
     """Создает инлайн кнопки для возврата к организации"""
@@ -92,7 +141,7 @@ def get_action_before_create_buttons(org_id: int) -> InlineKeyboardMarkup:
     )
     return keyboard
 
-def get_back_to_org_buttons(org_id: int) -> InlineKeyboardMarkup:
+async def get_back_to_org_buttons(org_id: int) -> InlineKeyboardMarkup:
     """Создает инлайн кнопки для возврата к организации"""
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -100,6 +149,7 @@ def get_back_to_org_buttons(org_id: int) -> InlineKeyboardMarkup:
         ]
     )
     return keyboard
+
 def log_user_info(message: Message):
     """Логирование информации о пользователе"""
     user = message.from_user
@@ -328,7 +378,7 @@ async def process_org_images(message: Message, state: FSMContext):
         "Теперь отправьте файлы Изображений Позиций Меню.\n"
         "Формат изображения должен быть следующим:\n"
         "Имя файла соответствует названию в таблице меню \n"
-        "JPG. Не юолее 200Кб \n"
+        "JPG. Не более 200Кб \n"
     )
     await state.set_state(OrganizationStates.waiting_for_images)
 
@@ -353,12 +403,22 @@ async def process_upload_images(message: Message, state: FSMContext):
             )
             return
 
-        # Подготавливаем файл для отправки
+        # Создаем директорию для изображений организации
+        org_images_dir = os.path.join(SAVE_FOLDER, f"{org_id}")
+        os.makedirs(org_images_dir, exist_ok=True)
+
+        # Подготавливаем файл для сохранения
         if message.photo:
             file_id = message.photo[-1].file_id
             file = await bot.get_file(file_id)
             file_path = file.file_path
-            original_filename = f"photo_{file_id}.jpg"
+            
+            # Для фото используем caption или генерируем имя на основе времени
+            if message.caption:
+                original_filename = f"{message.caption}.jpg"
+            else:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                original_filename = f"photo_{timestamp}.jpg"
         else:
             file_id = message.document.file_id
             file = await bot.get_file(file_id)
@@ -367,35 +427,41 @@ async def process_upload_images(message: Message, state: FSMContext):
 
         # Скачиваем файл
         downloaded_file = await bot.download_file(file_path)
+        
+        # Сохраняем файл локально
+        local_filepath = os.path.join(org_images_dir, original_filename)
+        with open(local_filepath, 'wb') as f:
+            f.write(downloaded_file.read())
 
-        # Отправляем файл через API
+        # Отправляем только имя файла через API
         async with aiohttp.ClientSession() as session:
-            form = aiohttp.FormData()
-            form.add_field('files', downloaded_file, filename=original_filename)
-            
+            # Отправляем JSON с именем файла
             async with session.post(
                 f"{API_URL}/organizations/{org_id}/images",
-                data=form
+                json={"image_name": original_filename,
+                      "stored_name": original_filename}
             ) as response:
                 if response.status == 200:
                     result = await response.json()
-                    logger.info(f"Successfully uploaded image: {result}")
+                    logger.info(f"Successfully registered image: {result}")
                     
                     # Сохраняем информацию о загруженных изображениях
                     images = data.get('_images', [])
-                    images.extend(result['uploaded_images'])
+                    images.append(original_filename)
                     await state.update_data(_images=images)
                     
                     await message.answer(
                         text="✅ Изображение успешно загружено!\n"
                         "Отправьте следующее изображение или нажмите кнопку 'Завершить' когда закончите.",
-                        reply_markup=get_back_to_org_buttons(org_id)
+                        reply_markup=await get_back_to_org_buttons(org_id)
                     )
                 else:
                     error_text = await response.text()
-                    logger.error(f"Error uploading image: {error_text}")
+                    logger.error(f"Error registering image: {error_text}")
+                    # Удаляем файл в случае ошибки
+                    os.remove(local_filepath)
                     await message.answer(
-                        text="❌ Произошла ошибка при загрузке изображения. Пожалуйста, попробуйте снова."
+                        text="❌ Произошла ошибка при регистрации изображения. Пожалуйста, попробуйте снова."
                     )
 
     except Exception as e:
@@ -512,6 +578,7 @@ async def organization_actions_callback(callback_query: types.CallbackQuery):
                 inline_keyboard=[
                     [InlineKeyboardButton(text="📋 Показать меню", callback_data=f"show_menu_{org_id}")],
                     [InlineKeyboardButton(text="📋 Загрузить Изображения", callback_data=f"upload_images_{org_id}")],
+                    [InlineKeyboardButton(text="🎨 Загрузить фоны", callback_data=f"upload_backgrounds_{org_id}")],
                     [InlineKeyboardButton(text="🌐 Сгенерировать веб-страницу", callback_data=f"generate_web_{org_id}")],
                     [InlineKeyboardButton(text="◀️ Назад к списку", callback_data="my_organizations")]
                 ]
@@ -529,14 +596,137 @@ async def organization_actions_callback(callback_query: types.CallbackQuery):
             reply_markup=get_main_buttons()
         )
     await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("upload_backgrounds_"))
+async def upload_backgrounds_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    """Обработчик кнопки загрузки фоновых изображений"""
+    org_id = int(callback_query.data.split("_")[2])
+    
+    # Сохраняем ID организации в состоянии
+    await state.update_data(org_id=org_id)
+    
+    # Создаем клавиатуру для выбора типа фона
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📱 Фон страницы (page.jpg)", callback_data=f"bg_page_{org_id}")],
+            [InlineKeyboardButton(text="📱 Фон шапки (header.jpg)", callback_data=f"bg_header_{org_id}")],
+            [InlineKeyboardButton(text="📱 Фон подвала (footer.jpg)", callback_data=f"bg_footer_{org_id}")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data=f"org_actions_{org_id}")]
+        ]
+    )
+    
+    await callback_query.message.edit_text(
+        "Выберите тип фонового изображения для загрузки:\n\n"
+        "• Фон страницы (page.jpg) - основной фон всего меню\n"
+        "• Фон шапки (header.jpg) - фон верхней части меню\n"
+        "• Фон подвала (footer.jpg) - фон нижней части меню\n\n"
+        "Рекомендуемые размеры:\n"
+        "• Фон страницы: 1920x1080px\n"
+        "• Фон шапки: 1920x300px\n"
+        "• Фон подвала: 1920x200px",
+        reply_markup=keyboard
+    )
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data.startswith(("bg_page_", "bg_header_", "bg_footer_")))
+async def background_type_selected(callback_query: types.CallbackQuery, state: FSMContext):
+    """Обработчик выбора типа фона"""
+    data = callback_query.data.split("_")
+    bg_type = data[1]  # page, header или footer
+    org_id = int(data[2])
+    
+    # Сохраняем тип фона в состоянии
+    await state.update_data(bg_type=bg_type)
+    await state.set_state(OrganizationStates.waiting_for_background)
+    
+    await callback_query.message.edit_text(
+        f"Отправьте изображение для фона {bg_type}.jpg\n\n"
+        "Требования к изображению:\n"
+        "• Формат: JPG\n"
+        "• Размер: не более 2MB\n"
+        "• Рекомендуемое разрешение: {}\n\n"
+        "Отправьте изображение или нажмите кнопку 'Назад'.".format(
+            "1920x1080px" if bg_type == "page" else
+            "1920x300px" if bg_type == "header" else
+            "1920x200px"
+        ),
+        reply_markup=await get_back_to_org_buttons(org_id)
+    )
+    await callback_query.answer()
+
+@dp.message(OrganizationStates.waiting_for_background)
+async def process_background_upload(message: Message, state: FSMContext):
+    """Обработка загрузки фонового изображения"""
+    try:
+        # Проверяем, что сообщение содержит фото или документ
+        if not message.photo and not message.document:
+            await message.answer(
+                text="❌ Пожалуйста, отправьте изображение в формате фото или документа."
+            )
+            return
+
+        # Получаем данные из состояния
+        data = await state.get_data()
+        org_id = data.get('org_id')
+        bg_type = data.get('bg_type')
+
+        if not org_id or not bg_type:
+            await message.answer(
+                text="❌ Ошибка: не найдены данные организации или тип фона. Пожалуйста, начните процесс заново."
+            )
+            return
+
+        # Создаем директорию для фонов организации
+        bg_dir = os.path.join("/static/backgrounds", str(org_id))
+        os.makedirs(bg_dir, exist_ok=True)
+
+        # Получаем файл
+        if message.photo:
+            file_id = message.photo[-1].file_id
+        else:
+            file_id = message.document.file_id
+
+        file = await bot.get_file(file_id)
+        file_path = file.file_path
+
+        # Скачиваем файл
+        downloaded_file = await bot.download_file(file_path)
+        
+        # Сохраняем файл с правильным именем
+        filename = f"{bg_type}.jpg"
+        local_filepath = os.path.join(bg_dir, filename)
+        with open(local_filepath, 'wb') as f:
+            f.write(downloaded_file.read())
+
+        # Показываем превью загруженного изображения
+        await message.answer_photo(
+            photo=file_id,
+            caption=f"✅ Фоновое изображение сохранено как {filename}\n\n"
+            "Выберите следующее действие:",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="📱 Загрузить другой фон", callback_data=f"upload_backgrounds_{org_id}")],
+                    [InlineKeyboardButton(text="◀️ Назад к организации", callback_data=f"org_actions_{org_id}")]
+                ]
+            )
+        )
+
+    except Exception as e:
+        logger.error(f"Error in process_background_upload: {str(e)}")
+        logger.error(traceback.format_exc())
+        await message.answer(
+            text="❌ Произошла ошибка при обработке изображения. Пожалуйста, попробуйте снова."
+        )
+
 # Generate Menu Page
 @dp.callback_query(lambda c: c.data.startswith("generate_web_"))
 async def generate_web_callback(callback_query: types.CallbackQuery):
     """Обработчик генерации веб-страницы меню"""
     org_id = int(callback_query.data.split('_')[-1])
+    keyboard = await get_theme_buttons(org_id)
     await callback_query.message.edit_text(
         "Выберите тему для вашего меню:",
-        reply_markup=get_theme_buttons(org_id)
+        reply_markup=keyboard
     )
     await callback_query.answer()
 
@@ -544,43 +734,56 @@ async def generate_web_callback(callback_query: types.CallbackQuery):
 async def theme_selected_callback(callback_query: types.CallbackQuery):
     """Обработчик выбора темы и генерация"""
     data = callback_query.data.split('_')    
-    theme= data[-1]
+    theme_id = data[-1]  # Получаем ID темы
     org_id = int(data[-2])
+    # print(org_id)
     try:
         async with aiohttp.ClientSession() as session:
-    # Получаем информацию об организации
+            # Получаем информацию об организации
             async with session.get(f"{API_URL}/organizations/{org_id}") as resp:
                 if resp.status != 200:
                     raise Exception(f"Failed to get organization: {await resp.text()}")
                 org = await resp.json()
-        async with aiohttp.ClientSession() as session:
-    # Получаем информацию о меню
+            # Получаем информацию о меню
             async with session.get(f"{API_URL}/organizations/{org_id}/menu") as resp:
                 if resp.status != 200:
-                    raise Exception(f"Failed to get organization: {await resp.text()}")
+                    raise Exception(f"Failed to get menu: {await resp.text()}")
                 menu_items = await resp.json()
-    # Формируем данные для отправки
+        
+        # Формируем данные для отправки
         content = {}
         for item in menu_items:            
             if item['category'] not in content:
                 content[item['category']] = []
-            entity = {'name': item['name'],
-                      'price': item['price'],
-                      'description': item['description'],
-                      'subcategory': item['subcategory']}
+            entity = {
+                'name': item['name'],
+                'price': item['price'],
+                'description': item['description'],
+                'subcategory': item['subcategory'],
+                'image_url': f'{org_id}/{item['image_name']}.jpg'
+            }
             content[item['category']].append(entity)        
-        data = {'page_name': org['menu_table_name'],
+        
+        data = {
+            'org_id': str(org_id),
+            'page_name': org['menu_table_name'],
+            'title': org['name'],
+            'description': org['description'],
+            'theme': theme_id,
+            'content': content,
+            'page_background': f'{NGINX_URL}/{BACKGROUNDS_URL}/{org_id}/page.jpg',  # опционально
+            'header_background': f'{NGINX_URL}/{BACKGROUNDS_URL}/{org_id}/header.jpg',  # опционально
+            'footer_background': f'{NGINX_URL}/{BACKGROUNDS_URL}/{org_id}/footer.jpg',  # опционально
+            'organization': {
                 'title': org['name'],
                 'description': org['description'],
-                'theme': theme,
-                'content': content
-                   }
-    except Exception as e:
-        logger.error(f"Error in organization actions: {str(e)}")
-    try:
-    #Menu Generation
+                'footer_text': 'Дополнительный текст в футере'  # опционально
+            }
+            
+        }
+        print(data)
+        # Menu Generation
         async with aiohttp.ClientSession() as session:
-            # Получаем информацию об организации
             async with session.post(f"{GEN_URL}/generate", json=data) as resp:
                 if resp.status == 200:
                     result = await resp.json()
@@ -589,19 +792,19 @@ async def theme_selected_callback(callback_query: types.CallbackQuery):
                         f"✅ Ваше меню успешно сгенерировано!\n\n"
                         f"🔗 Ссылка на меню: {menu_url}\n\n"
                         f"Вы можете поделиться этой ссылкой с вашими клиентами.",
-                        reply_markup=get_back_to_org_buttons(org_id)
+                        reply_markup=await get_back_to_org_buttons(org_id)
                     )
                 else:
                     error_text = await resp.text()
                     await callback_query.message.edit_text(
                         f"❌ Ошибка при генерации меню: {error_text}",
-                        reply_markup=get_back_to_org_buttons(org_id)
+                        reply_markup=await get_back_to_org_buttons(org_id)
                     )
     except Exception as e:
         logger.error(f"Error generating menu: {str(e)}")
         await callback_query.message.edit_text(
             f"❌ Произошла ошибка при генерации меню: {str(e)}",
-            reply_markup=get_back_to_org_buttons(org_id)
+            reply_markup=await get_back_to_org_buttons(org_id)
         )
     await callback_query.answer()
 
@@ -621,6 +824,31 @@ async def cmd_help(message: Message):
     
     await message.answer(help_text)
 #____________________________________________________________________________________________________________
+@dp.callback_query(lambda c: c.data.startswith("upload_images_"))
+async def upload_images_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    """Обработчик кнопки загрузки изображений"""
+    org_id = int(callback_query.data.split("_")[2])
+    
+    # Сохраняем ID организации в состоянии
+    await state.update_data(org_id=org_id)
+    
+    await callback_query.message.edit_text(
+        "Отправьте изображения для меню.\n"
+        "Формат изображения должен быть следующим:\n"
+        "• Имя файла должно соответствовать названию позиции в меню\n"
+        "• Формат: JPG\n"
+        "• Размер: не более 200Кб\n\n"
+        "Отправьте изображение или нажмите кнопку 'Назад' для возврата к организации.",
+        reply_markup=await get_back_to_org_buttons(org_id)
+    )
+    
+    # Устанавливаем состояние ожидания изображений
+    await state.set_state(OrganizationStates.waiting_for_images)
+    await callback_query.answer()
+
 if __name__ == "__main__":
     import asyncio
+    # Загружаем темы перед запуском бота
+    asyncio.run(load_theme_mapping())
+    # Запускаем бота
     asyncio.run(dp.start_polling(bot))

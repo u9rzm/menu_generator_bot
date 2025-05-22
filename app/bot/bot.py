@@ -1,7 +1,6 @@
 import os
 import logging
 import aiohttp
-# from collections import defaultdict
 from aiogram import Bot, Dispatcher, types
 from aiogram.enums.parse_mode import ParseMode
 from aiogram.filters import Command
@@ -20,7 +19,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 NGINX_URL = os.getenv("NGINX_URL")
 IMAGES_URL = os.getenv("IMAGES_URL")
 BACKGROUNDS_URL = os.getenv("BACKGROUNDS_URL")
-print(f'fon {BACKGROUNDS_URL}')
 GEN_URL ='http://genhtm:2424'
 # Настройка логирования
 logging.basicConfig(
@@ -28,7 +26,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
 # Загрузка тематического маппинга при запуске
 THEME_MAPPING = {}
 async def load_theme_mapping():
@@ -66,7 +63,6 @@ class OrganizationStates(StatesGroup):
     waiting_for_description_images = State()
     waiting_for_images = State()
     waiting_for_background = State()  # Новое состояние для фоновых изображений
-
 # Временное хранилище для альбомов
 SAVE_FOLDER = "/static/image_data"
 os.makedirs(SAVE_FOLDER, exist_ok=True)
@@ -109,16 +105,14 @@ async def get_theme_buttons(org_id: int) -> InlineKeyboardMarkup:
                     text=theme_name,
                     callback_data=f"theme_{org_id}_{theme_id}"
                 )
-            ])
-        
+            ])        
         # Добавляем кнопку "Назад"
         keyboard_buttons.append([
             InlineKeyboardButton(
                 text="◀️ Назад",
                 callback_data=f"org_actions_{org_id}"
             )
-        ])
-        
+        ])        
         return InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     except Exception as e:
         logger.error(f"Error creating theme buttons: {str(e)}")
@@ -130,17 +124,6 @@ async def get_theme_buttons(org_id: int) -> InlineKeyboardMarkup:
                 [InlineKeyboardButton(text="◀️ Назад", callback_data=f"org_actions_{org_id}")]
             ]
         )
-#Back menu
-def get_action_before_create_buttons(org_id: int) -> InlineKeyboardMarkup:
-    """Создает инлайн кнопки для возврата к организации"""
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📋 Загрузить Изображения", callback_data=f"upload_images_{org_id}")],
-            [InlineKeyboardButton(text="◀️ Назад к организации", callback_data=f"org_actions_{org_id}")]
-        ]
-    )
-    return keyboard
-
 async def get_back_to_org_buttons(org_id: int) -> InlineKeyboardMarkup:
     """Создает инлайн кнопки для возврата к организации"""
     keyboard = InlineKeyboardMarkup(
@@ -174,19 +157,16 @@ async def cmd_start(message: Message):
     log_user_info(message)    
     try:
         # Пытаемся зарегистрировать пользователя
-        success = await register_user(message.from_user.id)
-        
+        success = await register_user(message.from_user.id)        
         # Отправляем приветственное сообщение в любом случае
         await message.answer(
             "👋 Добро пожаловать в Menu Generator Bot!\n\n"
             "Я помогу вам создать красивое меню для вашего заведения. "
             "Выберите действие из меню ниже:",
             reply_markup=get_main_buttons()
-        )
-        
+        )        
         if not success:
-            logger.error(f"Failed to register user {message.from_user.id}")
-            
+            logger.error(f"Failed to register user {message.from_user.id}")            
     except Exception as e:
         logger.error(f"Error in cmd_start: {str(e)}")
         logger.error(traceback.format_exc())
@@ -369,7 +349,6 @@ async def process_org_menu(message: Message, state: FSMContext):
             )
 
 # Загрузка изображений
-
 @dp.message(OrganizationStates.waiting_for_description_images)
 async def process_org_images(message: Message, state: FSMContext):
     """Обработка Изображений организации"""
@@ -463,7 +442,6 @@ async def process_upload_images(message: Message, state: FSMContext):
                     await message.answer(
                         text="❌ Произошла ошибка при регистрации изображения. Пожалуйста, попробуйте снова."
                     )
-
     except Exception as e:
         logger.error(f"Error in process_upload_images: {str(e)}")
         logger.error(traceback.format_exc())
@@ -781,7 +759,6 @@ async def theme_selected_callback(callback_query: types.CallbackQuery):
             }
             
         }
-        print(data)
         # Menu Generation
         async with aiohttp.ClientSession() as session:
             async with session.post(f"{GEN_URL}/generate", json=data) as resp:
@@ -807,31 +784,26 @@ async def theme_selected_callback(callback_query: types.CallbackQuery):
             reply_markup=await get_back_to_org_buttons(org_id)
         )
     await callback_query.answer()
-
 #Help menu 
 @dp.message(Command("help"))
 async def cmd_help(message: Message):
     """Обработчик команды /help"""
-    log_user_info(message)
-    
+    log_user_info(message)    
     help_text = (
         "📋 Доступные команды:\n\n"
         "/start - Начать работу с ботом\n"
         "/menu - Просмотр меню\n"
         "/help - Показать это сообщение\n\n"
         "Если у вас возникли вопросы, обратитесь к администратору."
-    )
-    
+    )    
     await message.answer(help_text)
 #____________________________________________________________________________________________________________
 @dp.callback_query(lambda c: c.data.startswith("upload_images_"))
 async def upload_images_callback(callback_query: types.CallbackQuery, state: FSMContext):
     """Обработчик кнопки загрузки изображений"""
-    org_id = int(callback_query.data.split("_")[2])
-    
+    org_id = int(callback_query.data.split("_")[2])    
     # Сохраняем ID организации в состоянии
-    await state.update_data(org_id=org_id)
-    
+    await state.update_data(org_id=org_id)    
     await callback_query.message.edit_text(
         "Отправьте изображения для меню.\n"
         "Формат изображения должен быть следующим:\n"
@@ -840,8 +812,7 @@ async def upload_images_callback(callback_query: types.CallbackQuery, state: FSM
         "• Размер: не более 200Кб\n\n"
         "Отправьте изображение или нажмите кнопку 'Назад' для возврата к организации.",
         reply_markup=await get_back_to_org_buttons(org_id)
-    )
-    
+    )    
     # Устанавливаем состояние ожидания изображений
     await state.set_state(OrganizationStates.waiting_for_images)
     await callback_query.answer()

@@ -38,22 +38,17 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title="Menu API", lifespan=lifespan)
-#Routers
-
-# app.include_router(router_users)
 
 # Константы
 BASE_URL = "http://api:2424"
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 PAGES_DIR = os.path.join(STATIC_DIR, "pages")
 IMAGE_DATA_DIR = os.path.join(STATIC_DIR, "image_data")
-
 # Создаем директории если их нет
 logger.info(f"Creating static directories:")
 logger.info(f"STATIC_DIR: {STATIC_DIR}")
 logger.info(f"PAGES_DIR: {PAGES_DIR}")
 logger.info(f"IMAGE_DATA_DIR: {IMAGE_DATA_DIR}")
-
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(PAGES_DIR, exist_ok=True)
 os.makedirs(IMAGE_DATA_DIR, exist_ok=True)
@@ -65,27 +60,19 @@ for directory in [STATIC_DIR, PAGES_DIR, IMAGE_DATA_DIR]:
 
 # Монтируем статические файлы
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
 # Настраиваем шаблоны
 templates = Jinja2Templates(directory="templates")
-
 # Модели данных
 class ThemeRequest(BaseModel):
     theme: str = 'modern-dark'
-
 class ImageUploadRequest(BaseModel):
     image_name: str
     stored_name: str
 
-# Константы для тем
-THEMES = {
-    'light': 'Светлая',
-    'dark': 'Темная',
-    'pastel-light-1': 'Светлая пастель 1',
-    'pastel-light-2': 'Светлая пастель 2',
-    'pastel-dark-1': 'Темная пастель 1',
-    'pastel-dark-2': 'Темная пастель 2'
-}
+class OrganizationUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    owner_id: Optional[int] = None
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
@@ -116,7 +103,7 @@ async def debug_tables():
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 #Debug Users________________________________________________
-# # User endpoints
+# User endpoints
 @app.get("/users", response_model=List[dict])
 def get_users(
     skip: int = 0,
@@ -132,8 +119,6 @@ def get_users(
         return [item.to_dataclass().to_dict() for item in items]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
 # Получение всех элементов меню
 @app.get("/menu", response_model=List[dict])
 def get_menu(
@@ -152,7 +137,6 @@ def get_menu(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
-
 # Получение элемента меню по ID
 @app.get("/menu/{menu_id}", response_model=dict)
 def get_menu_item(menu_id: int, db: Session = Depends(get_db_session)):
@@ -190,7 +174,6 @@ def create_menu_item(
             is_available=is_available,
             image_url=None  # Изображения будут добавляться отдельно
         )
-
         # Сохранение в базу данных
         menu_item = Menu.create(db, menu_data)
         return menu_item.to_dataclass().to_dict()
@@ -307,7 +290,6 @@ def create_organization(
         """
         db.execute(text(create_menu_table_sql))
         db.commit()
-
         # Создаем организацию
         org_data = OrganizationData(
             name=name,
@@ -413,10 +395,8 @@ async def upload_menu(
             raise HTTPException(status_code=400, detail="Unsupported file format")
 
         db.commit()
-
         # Удаляем временный файл
         os.remove(file_path)
-
         return {"status": "success", "message": "Menu uploaded successfully"}
     except HTTPException:
         raise
@@ -505,31 +485,11 @@ def get_organization_menu_categories(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    # finally:
-    #     db.close()
-
-
 
 # API endpoints
 @app.get("/")
 async def root():
     return {"message": "Menu Generator API"}
-
-
-
-@app.get('/api/themes')
-async def get_themes():
-    """Возвращает список доступных тем"""
-    return {
-        'themes': THEMES
-    }
-
-@app.get('/themes')
-async def get_themes_alt():
-    """Возвращает список доступных тем (альтернативный эндпоинт)"""
-    return {
-        'themes': THEMES
-    }
 
 @app.get('/api/organizations/{org_id}/menu/url')
 async def get_menu_url(org_id: int, theme: str = 'modern-dark'):
@@ -592,10 +552,6 @@ async def add_menu_item(
     db.commit()
     db.refresh(menu_item)
     return menu_item
-
-
-
-
 #GET
 @app.get('/themes')
 async def get_themes():
@@ -677,10 +633,6 @@ def get_menu_page_url(org_id: int, theme: str) -> str:
     """Возвращает URL для страницы меню"""
     filename = f"menu_{org_id}_{theme}.html"
     return f"{BASE_URL}/static/pages/{filename}"
-
-
-class ThemeRequest(BaseModel):
-    theme: str = 'modern-dark',
 
 
 @app.post('/organizations/{org_id}/menu/generate/{theme}')
@@ -887,6 +839,48 @@ async def get_image(
         raise
     except Exception as e:
         logger.error(f"Error getting image: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.put("/organizations/{org_id}")
+async def update_organization(
+    org_id: int,
+    update_data: OrganizationUpdateRequest,
+    db: Session = Depends(get_db_session)
+):
+    """Обновляет параметры организации"""
+    try:
+        # Проверяем существование организации
+        org = Organization.get_by_id(db, org_id)
+        if not org:
+            raise HTTPException(status_code=404, detail="Организация не найдена")
+
+        # Создаем словарь с обновляемыми полями
+        update_dict = {}
+        if update_data.name is not None:
+            update_dict['name'] = update_data.name
+        if update_data.description is not None:
+            update_dict['description'] = update_data.description
+        if update_data.owner_id is not None:
+            update_dict['owner_id'] = update_data.owner_id
+
+        # Обновляем организацию
+        for key, value in update_dict.items():
+            setattr(org, key, value)
+
+        # Сохраняем изменения
+        db.commit()
+        db.refresh(org)
+
+        return org.to_dataclass().to_dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating organization: {str(e)}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
     finally:

@@ -66,7 +66,6 @@ app/
 - SQLAlchemy
 - FastAPI
 - PostgreSQL
-- Redis
 - Pydantic
 - Alembic
 
@@ -87,7 +86,6 @@ poetry install
 ```env
 BOT_TOKEN=your_telegram_bot_token
 DATABASE_URL=postgresql://user:password@localhost:5432/dbname
-REDIS_URL=redis://localhost:6379/0
 ```
 
 4. Примените миграции:

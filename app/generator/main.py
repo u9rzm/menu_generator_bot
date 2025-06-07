@@ -8,6 +8,7 @@ import traceback
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 from datetime import datetime
+from base import GenerateRequest
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,40 +32,6 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # Настраиваем шаблоны
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
-
-# Модели данных
-class MenuItem(BaseModel):
-    name: str
-    price: float
-    description: Optional[str] = None
-    subcategory: Optional[str] = None
-    image_url: Optional[str] = None
-
-    def get_image_url(self) -> Optional[str]:
-        if self.image_url:
-            return f"{NGINX_URL}/images/{self.image_url}"
-        return None
-
-class MenuCategory(BaseModel):
-    name: str
-    items: List[MenuItem]
-
-class Organization(BaseModel):
-    title: str
-    description: Optional[str] = None
-    footer_text: Optional[str] = None
-
-class GenerateRequest(BaseModel):
-    org_id: str
-    page_name: str
-    title: str
-    description: Optional[str] = None
-    theme: str
-    content: Dict[str, List[MenuItem]]
-    page_background: Optional[str] = None
-    header_background: Optional[str] = None
-    footer_background: Optional[str] = None
-    organization: Organization
 
 @app.post("/generate")
 async def generate_menu(request: GenerateRequest):

@@ -13,7 +13,8 @@ from aiogram.types import Update
 import traceback
 from datetime import datetime
 import json
-import os
+import qrcode
+from PIL import Image
 API_URL = os.getenv("API_URL")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 NGINX_URL = os.getenv("NGINX_URL")
@@ -76,7 +77,7 @@ def get_main_buttons() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="📝 Создать организацию", callback_data="create_org")],
             [InlineKeyboardButton(text="🏢 Мои организации", callback_data="my_organizations")],
-            [InlineKeyboardButton(text="❓ Помощь", callback_data="help")]
+            [InlineKeyboardButton(text="❓ Помощь", callback_data="help_")]
         ]
     )
     return keyboard
@@ -98,6 +99,7 @@ async def get_theme_buttons(org_id: int) -> InlineKeyboardMarkup:
     try:
         # Создаем кнопки для каждой темы из загруженного маппинга
         keyboard_buttons = []
+        keyboard_buttons.append([InlineKeyboardButton(text="🌐 Ai генерация темы", callback_data=f"ai_generate_theme_{org_id}")])
         for theme_file, theme_name in THEME_MAPPING.items():
             theme_id = theme_file.replace('.css', '')  # Убираем расширение .css
             keyboard_buttons.append([
@@ -107,12 +109,7 @@ async def get_theme_buttons(org_id: int) -> InlineKeyboardMarkup:
                 )
             ])        
         # Добавляем кнопку "Назад"
-        keyboard_buttons.append([
-            InlineKeyboardButton(
-                text="◀️ Назад",
-                callback_data=f"org_actions_{org_id}"
-            )
-        ])        
+        keyboard_buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"org_actions_{org_id}")])        
         return InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     except Exception as e:
         logger.error(f"Error creating theme buttons: {str(e)}")
@@ -148,6 +145,25 @@ def log_user_info(message: Message):
         f"Chat ID: {chat.id}\n"
         f"Message Text: {message.text}"
     )
+def generate_qr_code(id: str, filename: str = "qrcode.png"):
+    url =f"{NGINX_URL}/pages/{id}/index.html"
+    logger.info(f"Generate qr for {url}")
+    try:
+        qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+
+        qr.add_data(url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        img.save(f"/static/image_data/{id}/{filename}")
+    except Exception as e:
+        logger.error(f"Ошибка генерации: {e}")
+
+    
 #Comands______________________________________________________________________________
 
 # Start/ registring
@@ -249,7 +265,9 @@ async def process_menu_type_selection(callback_query: types.CallbackQuery, state
     
     if callback_query.data == "upload_menu_file":
         await callback_query.message.edit_text(
-            "Пожалуйста, отправьте файл с меню в формате CSV или Excel."
+            "Пожалуйста, отправьте файл с меню в формате CSV или Excel.\n"
+            "Формат таблицы должен содержать поля.\n\n"
+            "name,price,category,description,subcategory,image_name"
         )
     else:
         await callback_query.message.edit_text(
@@ -268,7 +286,7 @@ async def process_org_menu(message: Message, state: FSMContext):
     if upload_type == "upload_menu_file":
         if not message.document:
             await message.answer(
-                "Пожалуйста, отправьте файл с меню в формате CSV или Excel."
+                "Пожалуйста, отправьте файл с меню в формате CSV."
             )
             return
             
@@ -357,6 +375,8 @@ async def process_org_images(message: Message, state: FSMContext):
         "Теперь отправьте файлы Изображений Позиций Меню.\n"
         "Формат изображения должен быть следующим:\n"
         "Имя файла соответствует названию в таблице меню \n"
+        "ВАЖНО. Отправляйте изображения как документ, чтобы телеграм не изменил название.\n"
+        "Изображения с другими именами загружены не будут.\n"
         "JPG. Не более 200Кб \n"
     )
     await state.set_state(OrganizationStates.waiting_for_images)
@@ -371,7 +391,6 @@ async def process_upload_images(message: Message, state: FSMContext):
                 text="❌ Пожалуйста, отправьте изображение или документ с изображением."
             )
             return
-
         # Получаем данные организации
         data = await state.get_data()
         org_id = data.get('org_id')
@@ -554,7 +573,7 @@ async def organization_actions_callback(callback_query: types.CallbackQuery):
         # Создаем клавиатуру с действиями
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="📋 Показать меню", callback_data=f"show_menu_{org_id}")],
+                    [InlineKeyboardButton(text="📋 Показать QR код страницы", callback_data=f"qrcode_{org_id}")],
                     [InlineKeyboardButton(text="📋 Загрузить Изображения", callback_data=f"upload_images_{org_id}")],
                     [InlineKeyboardButton(text="🎨 Загрузить фоны", callback_data=f"upload_backgrounds_{org_id}")],
                     [InlineKeyboardButton(text="🌐 Сгенерировать веб-страницу", callback_data=f"generate_web_{org_id}")],
@@ -639,7 +658,7 @@ async def process_background_upload(message: Message, state: FSMContext):
         # Проверяем, что сообщение содержит фото или документ
         if not message.photo and not message.document:
             await message.answer(
-                text="❌ Пожалуйста, отправьте изображение в формате фото или документа."
+                text="❌ Пожалуйста, отправьте изображение в формате  документа."
             )
             return
 
@@ -749,13 +768,13 @@ async def theme_selected_callback(callback_query: types.CallbackQuery):
             'description': org['description'],
             'theme': theme_id,
             'content': content,
-            'page_background': f'{NGINX_URL}/{BACKGROUNDS_URL}/{org_id}/page.jpg',  # опционально
-            'header_background': f'{NGINX_URL}/{BACKGROUNDS_URL}/{org_id}/header.jpg',  # опционально
-            'footer_background': f'{NGINX_URL}/{BACKGROUNDS_URL}/{org_id}/footer.jpg',  # опционально
+            'page_background': f'{NGINX_URL}/{BACKGROUNDS_URL}/{org_id}/page.png',  # опционально
+            'header_background': f'{NGINX_URL}/{BACKGROUNDS_URL}/{org_id}/header.png',  # опционально
+            'footer_background': f'{NGINX_URL}/{BACKGROUNDS_URL}/{org_id}/footer.png',  # опционально
             'organization': {
                 'title': org['name'],
                 'description': org['description'],
-                'footer_text': 'Дополнительный текст в футере'  # опционально
+                'footer_text': 'Powered by TitanPillows'  # опционально
             }
             
         }
@@ -784,8 +803,8 @@ async def theme_selected_callback(callback_query: types.CallbackQuery):
             reply_markup=await get_back_to_org_buttons(org_id)
         )
     await callback_query.answer()
-#Help menu 
-@dp.message(Command("help"))
+# #Help menu 
+@dp.message(lambda c: c.data.startswith("help_"))
 async def cmd_help(message: Message):
     """Обработчик команды /help"""
     log_user_info(message)    
@@ -794,9 +813,58 @@ async def cmd_help(message: Message):
         "/start - Начать работу с ботом\n"
         "/menu - Просмотр меню\n"
         "/help - Показать это сообщение\n\n"
-        "Если у вас возникли вопросы, обратитесь к администратору."
+        "Если у вас возникли вопросы, обратитесь к администратору.",
+        get_help_buttons()
     )    
     await message.answer(help_text)
+
+@dp.callback_query(lambda c: c.data.startswith("qrcode_"))
+async def qr_code(callback_query: types.CallbackQuery):
+    """Обработчик генерации веб-страницы меню"""
+    org_id: str = callback_query.data.split('_')[-1]
+    print(org_id)
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data=f"org_actions_{org_id}")]])
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Получаем информацию о файле qr
+            async with session.get(f"{NGINX_URL}/images/{org_id}/qrcode.png") as resp:
+                if resp.status != 200:
+                    logger.info(f"ошибка файла qr. Генерация...") 
+                    generate_qr_code(org_id)                                                       
+                await callback_query.message.answer_photo(
+                    photo = f"{NGINX_URL}/images/{org_id}/qrcode.png",
+                    caption=f"Ссылка на меню доступна по этому qr коду",
+                    reply_markup=keyboard
+                ) 
+    except Exception as e:
+        logger.error(f"ошибка подключения {str(e)}")        
+
+                
+@dp.callback_query(lambda c: c.data.startswith("ai_generate_theme_"))
+async def ai_generator_main(callback_query: types.CallbackQuery, state: FSMContext):
+    """Процесс Генерации стиля"""
+    #Сначала смотрим жив ли сервис ai
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data=f"back_to_main")]])
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{AI_GENERATOR_URL}/health") as resp:
+                if resp.status != 200:
+                    raise Exception(f"Failed to connect: {await resp.text()}")
+                health = await resp.json()
+                if health['status'] != 'healthy':
+                    await callback_query.message.answer(
+                    text="❌ Ошибка: Сервис Генерации недоступен, повторите попытку позже.",
+                    reply_markup=keyboard
+                )
+                return
+    except Exception as e:
+        logger.error(f"Error conection to service AI_geneator: {str(e)}")    
+
+
 #____________________________________________________________________________________________________________
 @dp.callback_query(lambda c: c.data.startswith("upload_images_"))
 async def upload_images_callback(callback_query: types.CallbackQuery, state: FSMContext):
